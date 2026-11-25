@@ -147,6 +147,14 @@ done:ic('<path d="M4 12.5l5 5L20 6.5"/>')};
 const ERR={'auth/invalid-credential':'Username atau password salah','auth/wrong-password':'Username atau password salah','auth/user-not-found':'Username atau password salah','auth/invalid-email':'Username tidak valid (pakai huruf/angka tanpa spasi)','auth/email-already-in-use':'Username sudah dipakai','auth/weak-password':'Password minimal 6 karakter','auth/network-request-failed':'Tidak ada koneksi internet','auth/too-many-requests':'Terlalu banyak percobaan, tunggu sebentar','permission-denied':'Tidak punya izin untuk ini','unavailable':'Sedang offline, coba lagi nanti'};
 const emsg=e=>ERR[e&&e.code]||('Gagal: '+((e&&(e.code||e.message))||'error'));
 
+const APP='https://brot1994.github.io/TugasTim/';
+const waNum=v=>{let d=String(v||'').replace(/\D/g,'');if(d.startsWith('0'))d='62'+d.slice(1);else if(d.startsWith('8'))d='62'+d;return d.length>=10?d:''};
+const tlink=x=>APP+'#t-'+x.id;
+function waPrompt(toId,text,title){const u=U[toId];if(!u||toId===me.id)return false;const n=waNum(u.wa);
+ openSheet(`<h2>${esc(title||'Kabari lewat WA?')}</h2>`+(n?`<p class="sub">Pesan untuk ${esc(u.name)}:</p><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn" data-act="close">Lewati</button><a class="btn pri" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Kirim WA ke ${esc(u.name)}</a></div>`
+  :`<p class="sub">No. WA ${esc(u.name)} belum diisi. Admin bisa mengisinya di menu Tim.</p><div class="acts"><button class="btn pri" data-act="close">OK</button></div>`),'wa');return true}
+let openHash=(location.hash.match(/^#t-(.+)$/)||[])[1]||null;
+window.addEventListener('hashchange',()=>{const m=location.hash.match(/^#t-(.+)$/);if(m){openHash=m[1];if(ready.all)refresh()}});
 let view='loading',me=null,U={},TO={},TD={},P={},SET={jam:'07:00'},ready={},unsubs=[],tab='',filt={st:'semua',who:'',q:''},F={},pending=null,sheet={mode:null,id:null},photoCache={},genDay='',cleaned=false,settingUp=false;
 const tasks=()=>Object.values({...TD,...TO});
 const byId=id=>TO[id]||TD[id];
@@ -202,8 +210,8 @@ lap(){const t=reportText();return `<h1>Laporan pagi</h1><p class="sub">Teks ini 
  <div class="acts"><button class="btn" data-act="copy">Salin teks</button><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(t)}" target="_blank" rel="noopener">Buka WhatsApp</a></div>
  <p class="hint">Di WhatsApp, pilih grup tim lalu tekan kirim.</p>
  <div class="zone"><b>Kirim otomatis (tahap 2)</b><p>Nantinya laporan terkirim sendiri ke grup setiap hari jam <input type="time" id="jam" value="${esc(SET.jam||'07:00')}" aria-label="Jam laporan"> tanpa perlu menekan tombol.</p></div>`},
-tim(){return `<h1>Tim</h1><p class="sub">Admin bisa membuat dan mengatur tugas. Anggota hanya melihat dan menyelesaikan tugasnya sendiri.</p><div class="people">${users().map(u=>`<div class="urow"><span class="av">${avatar(u.name)}</span><div class="grow"><b>${esc(u.name)}</b><small>@${esc(u.username)} · ${esc(u.jab)} · ${u.role==='admin'?'Admin':'Anggota'}</small></div>${u.id===me.id||u.username===OWNER?'':`<button class="btn" data-act="role" data-id="${esc(u.id)}">${u.role==='admin'?'Jadikan anggota':'Jadikan admin'}</button><button class="btn dang" data-act="delu" data-id="${esc(u.id)}">Nonaktifkan</button>`}</div>`).join('')}</div>
- <h3>Buat akun baru</h3><form id="addu"><div class="row2"><input name="n" placeholder="Nama tampilan" aria-label="Nama" required><input name="j" placeholder="Jabatan" aria-label="Jabatan"></div><div class="row2"><input name="u" placeholder="Username (tanpa spasi)" aria-label="Username" autocapitalize="none" autocomplete="off" required><input name="p" placeholder="Password awal (min. 6)" aria-label="Password" autocomplete="new-password" required></div><select name="r" aria-label="Peran" style="margin-bottom:12px"><option value="member">Anggota</option><option value="admin">Admin</option></select><div class="err" id="adderr"></div><button class="btn pri" style="width:100%">Buat akun</button></form>
+tim(){return `<h1>Tim</h1><p class="sub">Admin bisa membuat dan mengatur tugas. Anggota hanya melihat dan menyelesaikan tugasnya sendiri.</p><div class="people">${users().map(u=>`<div class="urow"><span class="av">${avatar(u.name)}</span><div class="grow"><b>${esc(u.name)}</b><small>@${esc(u.username)} · ${esc(u.jab)} · ${u.role==='admin'?'Admin':'Anggota'}</small><small>WA: ${u.wa?esc(u.wa):'<i>belum diisi</i>'}</small></div><button class="btn" data-act="setwa" data-id="${esc(u.id)}">No. WA</button>${u.id===me.id||u.username===OWNER?'':`<button class="btn" data-act="role" data-id="${esc(u.id)}">${u.role==='admin'?'Jadikan anggota':'Jadikan admin'}</button><button class="btn dang" data-act="delu" data-id="${esc(u.id)}">Nonaktifkan</button>`}</div>`).join('')}</div>
+ <h3>Buat akun baru</h3><form id="addu"><div class="row2"><input name="n" placeholder="Nama tampilan" aria-label="Nama" required><input name="j" placeholder="Jabatan" aria-label="Jabatan"></div><div class="row2"><input name="u" placeholder="Username (tanpa spasi)" aria-label="Username" autocapitalize="none" autocomplete="off" required><input name="p" placeholder="Password awal (min. 6)" aria-label="Password" autocomplete="new-password" required></div><input name="w" type="tel" placeholder="No. WA (contoh 0812xxxx)" aria-label="No. WA" style="margin-bottom:10px"><select name="r" aria-label="Peran" style="margin-bottom:12px"><option value="member">Anggota</option><option value="admin">Admin</option></select><div class="err" id="adderr"></div><button class="btn pri" style="width:100%">Buat akun</button></form>
  <p class="hint">Berikan username & password awal ke anggota. Mereka bisa mengganti password sendiri lewat tombol nama di pojok kanan atas.</p>`},
 mine(){const a=tasks().filter(x=>x.to===me.id&&x.status!=='selesai').sort(sortT),l=a.filter(isLate).length;
  return `<h1>Halo, ${esc(me.name)}</h1><p class="sub">${a.length} tugas belum selesai${l?`, <b class="d-late">${l} terlambat</b>`:''}.</p>${listOr(a,'Tidak ada tugas. Mantap!')}`},
@@ -235,6 +243,7 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  const s=stOf(x),adm=isAdm(),can=adm||me.id===x.to,p=x.tpl&&P[x.tpl];
  let a='';if(can&&x.status==='baru')a+=`<button class="btn" data-act="start" data-id="${esc(x.id)}">Mulai kerjakan</button>`;
  if(can&&x.status!=='selesai')a+=`<button class="btn pri" data-act="finish" data-id="${esc(x.id)}">Tandai selesai</button>`;
+ if(adm&&isLate(x)&&x.to!==me.id)a+=`<button class="btn" data-act="remind" data-id="${esc(x.id)}">Ingatkan via WA</button>`;
  if(adm&&x.status==='selesai')a+=`<button class="btn" data-act="reopen" data-id="${esc(x.id)}">Buka lagi</button>`;
  openSheet(`<div class="tk-top"><span class="pill s-${s}">${ST[s]}</span>${x.prio==='T'?'<span class="pill pr">Prioritas tinggi</span>':''}</div><h2>${esc(x.title)}</h2>
  <dl class="meta"><dt>Penanggung jawab</dt><dd>${esc(uname(x.to))}</dd><dt>Deadline</dt><dd>${esc(full(x.due))} · <span class="d-${s}">${esc(dueTxt(x))}</span></dd><dt>Prioritas</dt><dd>${PRIO[x.prio]||'-'}</dd><dt>Dari</dt><dd>${esc(uname(x.by))}</dd>${p?`<dt>Jadwal</dt><dd>${esc(ruleTxt(p))}</dd>`:''}</dl>
@@ -271,7 +280,10 @@ async function saveForm(f){const g=n=>(f.elements[n]&&f.elements[n].value||'').t
  if(ed){const x=byId(ed),day=g('tgl')||x.due.slice(0,10);
   if(await W(updateDoc(doc(db,'tasks',ed),{title,to,prio:F.prio,note,due:day+'T'+jam,day,log:arrayUnion(entry('mengubah tugas'))}),'Tugas diperbarui'))openDetail(ed,true);else btn.disabled=false;return}
  if(F.rep==='sekali'){const tgl=g('tgl');if(!tgl){btn.disabled=false;return toast('Isi tanggal deadline')}
-  if(await W(addDoc(collection(db,'tasks'),{title,to,by:me.id,due:tgl+'T'+jam,day:tgl,prio:F.prio,status:'baru',note,doneAt:null,tpl:null,hasPhoto:false,created:Date.now(),log:[entry('membuat tugas')]}),'Tugas dibuat untuk '+uname(to)))closeSheet();else btn.disabled=false;return}
+  try{const r=await addDoc(collection(db,'tasks'),{title,to,by:me.id,due:tgl+'T'+jam,day:tgl,prio:F.prio,status:'baru',note,doneAt:null,tpl:null,hasPhoto:false,created:Date.now(),log:[entry('membuat tugas')]});
+   toast('Tugas dibuat untuk '+uname(to));const x={id:r.id,title,due:tgl+'T'+jam,note,prio:F.prio};
+   if(!waPrompt(to,`📋 *TUGAS BARU*\nDari: ${me.name}\nTugas: ${title}\n⏰ Deadline: ${full(x.due)}${F.prio==='T'?'\n❗ Prioritas tinggi':''}${note?'\n📝 '+note:''}\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?'))closeSheet()}
+  catch(e){toast(emsg(e));btn.disabled=false}return}
  const days=[...f.querySelectorAll('[name=day]:checked')].map(c=>+c.value);if(F.rep==='mingguan'&&!days.length){btn.disabled=false;return toast('Pilih minimal satu hari')}
  if(await W(addDoc(collection(db,'tpls'),{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(28,Math.max(1,+g('date')||1)),time:jam,on:true,by:me.id,created:Date.now()}),'Tugas berulang disimpan')){closeSheet();genDay=''}else btn.disabled=false}
 
@@ -290,6 +302,7 @@ async function compress(file,max=1024,q=0.6){const url=URL.createObjectURL(file)
  c.getContext('2d').drawImage(img,0,0,c.width,c.height);const out=c.toDataURL('image/jpeg',q);return out.length>700000&&max>600?compress(file,max-256,q-0.1):out}finally{URL.revokeObjectURL(url)}}
 
 function refresh(){if(!(ready.u&&ready.o&&ready.d&&ready.p))return;ready.all=true;gen();if(isAdm())cleanup();render();
+ if(openHash&&byId(openHash)){const h=openHash;openHash=null;history.replaceState(null,'',location.pathname);openDetail(h);return}
  const ae=document.activeElement;if(sheet.mode==='detail'&&!(ae&&$('#sheetIn').contains(ae)&&ae.matches('input,textarea')))openDetail(sheet.id,true)}
 function listen(){const fail=e=>{console.error(e);toast(emsg(e))};
  unsubs.push(onSnapshot(collection(db,'users'),s=>{U={};s.forEach(d=>U[d.id]={id:d.id,...d.data()});
@@ -313,7 +326,7 @@ async function createAccount(f){const g=n=>f.elements[n].value.trim(),name=g('n'
  er.textContent='Membuat akun…';const btn=f.querySelector('.pri');btn.disabled=true;
  const sec=initializeApp(cfg,'buat-'+Date.now());
  try{const sa=initializeAuth(sec,{persistence:inMemoryPersistence});const c=await createUserWithEmailAndPassword(sa,mail(un),pw);
-  await setDoc(doc(db,'users',c.user.uid),{name,username:un,jab,role,active:true,created:Date.now()});await signOut(sa);
+  await setDoc(doc(db,'users',c.user.uid),{name,username:un,jab,role,wa:g('w'),active:true,created:Date.now()});await signOut(sa);
   f.reset();er.textContent='';toast(`Akun ${name} dibuat (username: ${un})`)}
  catch(e){er.textContent=emsg(e)}finally{btn.disabled=false;deleteApp(sec).catch(()=>{})}}
 
@@ -329,6 +342,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  const ref=id&&doc(db,'tasks',id);
  switch(d.act){
  case 'close':return closeSheet();
+ case 'waclose':setTimeout(closeSheet,400);return;
  case 'logout':closeSheet();return signOut(auth);
  case 'setup':return openSheet(`<form id="setup"><h2>Setup pertama kali</h2><p class="sub">Membuat akun admin utama dengan username <b>${OWNER}</b>. Hanya perlu sekali.</p><label>Password baru (min. 6)<input name="p" type="password" autocomplete="new-password" required></label><label>Ulangi password<input name="p2" type="password" autocomplete="new-password" required></label><div class="err" id="serr"></div><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Buat akun admin</button></div></form>`,'setup');
  case 'start':return W(updateDoc(ref,{status:'proses',log:arrayUnion(entry('mulai mengerjakan'))}),'Status: dikerjakan');
@@ -336,8 +350,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  case 'cancelfin':return openDetail(id);
  case 'savefin':{if(!pending)return toast('Foto bukti wajib diisi');b.disabled=true;$('#finfo').textContent='Menyimpan…';const ph=pending;
   const ok=await W(setDoc(doc(db,'photos',id),{data:ph,at:Date.now()}).then(()=>updateDoc(ref,{status:'selesai',doneAt:Date.now(),hasPhoto:true,log:arrayUnion(entry('menandai selesai dengan foto bukti'))})),'Tugas selesai 👍');
-  if(ok){photoCache[id]={data:ph,at:Date.now()};pending=null;openDetail(id,true)}else b.disabled=false;return}
+  if(ok){photoCache[id]={data:ph,at:Date.now()};pending=null;const x=byId(id),now=Date.now(),late=now>new Date(x.due).getTime();
+   const lc=(x.log||[]).filter(l=>l.who===me.id&&l.msg.startsWith('💬')).sort((a,c)=>c.t-a.t)[0];
+   if(!waPrompt(x.by,`✅ *TUGAS SELESAI*\n👤 ${me.name}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)} (${late?'terlambat':'tepat waktu'})${lc?'\n💬 '+lc.msg.slice(2).trim():''}\n📷 Foto bukti: ${tlink(x)}`,'Kabari '+uname(x.by)+' lewat WA?'))openDetail(id,true)}else b.disabled=false;return}
  case 'reopen':await W(updateDoc(ref,{status:'proses',doneAt:null,hasPhoto:false,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi');deleteDoc(doc(db,'photos',id)).catch(()=>{});delete photoCache[id];return;
+ case 'remind':{const x=byId(id);return waPrompt(x.to,`⏰ *PENGINGAT TUGAS*\nHalo ${uname(x.to)}, tugas ini sudah lewat deadline:\n📋 ${x.title}\nDeadline: ${full(x.due)}\nMohon segera dikerjakan / kabari kendalanya.\n\nBuka: ${tlink(x)}`,'Ingatkan '+uname(x.to)+'?')}
+ case 'setwa':{const u=U[id];return openSheet(`<form id="waf" data-id="${esc(id)}"><h2>No. WA ${esc(u.name)}</h2><label>Nomor WhatsApp<input name="w" type="tel" value="${esc(u.wa||'')}" placeholder="contoh 0812xxxx"></label><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form')}
  case 'edit':return openForm(id);
  case 'del':$('#aacts').innerHTML=`<span style="flex:1 1 100%">Hapus tugas ini?</span><button class="btn" data-act="cancelfin" data-id="${esc(id)}">Batal</button><button class="btn dang" data-act="del2" data-id="${esc(id)}">Ya, hapus</button>`;return;
  case 'del2':closeSheet();await W(deleteDoc(ref),'Tugas dihapus');deleteDoc(doc(db,'photos',id)).catch(()=>{});return;
@@ -354,11 +372,14 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
   er.textContent='Membuat akun…';settingUp=true;
   try{const c=await createUserWithEmailAndPassword(auth,mail(OWNER),p);await setDoc(doc(db,'users',c.user.uid),{name:'Bram',username:OWNER,jab:'Admin',role:'admin',active:true,created:Date.now()});settingUp=false;closeSheet();boot(c.user)}
   catch(x){settingUp=false;er.textContent=x.code==='auth/email-already-in-use'?'Akun admin utama sudah ada. Silakan masuk dengan username bram.':emsg(x);if(auth.currentUser)boot(auth.currentUser)}return}
+ if(f.id==='waf'){const w=f.elements.w.value.trim();if(w&&!waNum(w))return toast('Nomor WA tidak valid');if(await W(updateDoc(doc(db,'users',f.dataset.id),{wa:w}),'No. WA disimpan'))closeSheet();return}
  if(f.id==='frm')return saveForm(f);
  if(f.id==='addu')return createAccount(f);
  if(f.id==='pw'){const er=$('#pwerr'),n=f.elements.n.value;if(n.length<6)return er.textContent='Password baru minimal 6 karakter';er.textContent='Menyimpan…';
   try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,f.elements.o.value));await updatePassword(u,n);closeSheet();toast('Password diganti')}catch(x){er.textContent=emsg(x)}return}
- if(f.id==='cmt'){const c=f.elements.c.value.trim();if(!c)return;f.elements.c.value='';W(updateDoc(doc(db,'tasks',f.dataset.id),{log:arrayUnion(entry('💬 '+c))}))}});
+ if(f.id==='cmt'){const c=f.elements.c.value.trim();if(!c)return;f.elements.c.value='';const x=byId(f.dataset.id);
+  if(await W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}))){const to=me.id===x.to?x.by:x.to;
+   waPrompt(to,`💬 *KOMENTAR BARU*\n👤 ${me.name}\n📋 ${x.title}\n"${c}"\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?')}}});
 document.addEventListener('input',e=>{if(e.target.id==='fq'){filt.q=e.target.value;$('#list').innerHTML=listHtml()}});
 document.addEventListener('change',async e=>{const t=e.target;
  if(t.id==='fwho'){filt.who=t.value;$('#list').innerHTML=listHtml()}
