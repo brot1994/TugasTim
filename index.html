@@ -165,6 +165,14 @@ async function shareSheet(x){const other=me.id===x.to?x.by:x.to,text=msgFor(x);l
  const u=U[other],n=u&&waNum(u.wa);
  openSheet(`<h2>Kirim lewat WA</h2><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn pri" data-act="sharephoto">Kirim dengan foto</button>${n?`<a class="btn" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Teks saja ke ${esc(u.name)}</a>`:''}</div><p class="hint">"Kirim dengan foto": pilih WhatsApp, lalu pilih ${esc(u?u.name:'penerima')} atau grup.</p><div class="acts"><button class="btn" data-act="close">Batal</button></div>`,'wa')}
 let shareFile=null,shareText='';
+const QUICK_M=['Siap, segera dikerjakan','Sedang dikerjakan','Sudah selesai, mohon dicek','Ada kendala: ','Minta waktu tambahan sampai ','Butuh bantuan'];
+const QUICK_A=['Terima kasih, bagus 👍','Tolong segera dikerjakan','Mohon diperbaiki: ','Kabari progresnya ya','Deadline diperpanjang sampai ','OK, saya cek dulu'];
+function cmtBox(x){const oth=me.id===x.to?x.by:x.to,u=U[oth],n=u&&oth!==me.id&&waNum(u.wa);
+ return `<div class="chips" style="margin-top:12px">${(isAdm()&&me.id!==x.to?QUICK_A:QUICK_M).map(q=>`<button type="button" data-q="${esc(q)}">${esc(q.trim())}</button>`).join('')}</div>
+ <form id="cmt" data-id="${esc(x.id)}"><textarea name="c" rows="2" placeholder="Tulis komentar…" aria-label="Komentar" style="min-height:56px"></textarea>
+ <div class="acts" style="margin-top:8px"><button class="btn">Kirim</button>${n?`<a class="btn" id="cmtwa" data-act="cmtwa" data-id="${esc(x.id)}" data-n="${n}" href="https://wa.me/${n}" target="_blank" rel="noopener" style="background:#25a244;border-color:#25a244;color:#fff">Kirim + WA ke ${esc(u.name)}</a>`:''}</div></form>`}
+function cmtMsg(x,c){return `💬 *KOMENTAR*\n👤 ${me.name}\n📋 ${x.title}\n"${c}"\n\nBuka: ${tlink(x)}`}
+function updWa(){const a=$('#cmtwa'),f=$('#cmt');if(!a||!f)return;const x=byId(f.dataset.id),c=f.elements.c.value.trim();a.href=`https://wa.me/${a.dataset.n}?text=${encodeURIComponent(cmtMsg(x,c))}`}
 let openHash=(location.hash.match(/^#t-(.+)$/)||[])[1]||null;
 window.addEventListener('hashchange',()=>{const m=location.hash.match(/^#t-(.+)$/);if(m){openHash=m[1];if(ready.all)refresh()}});
 let view='loading',me=null,U={},TO={},TD={},P={},SET={jam:'07:00'},ready={},unsubs=[],tab='',filt={st:'semua',who:'',q:''},F={},pending=null,sheet={mode:null,id:null},photoCache={},genDay='',cleaned=false,settingUp=false;
@@ -263,7 +271,7 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  ${x.note?`<p class="note">${esc(x.note)}</p>`:''}${x.hasPhoto?`<figure class="ph" id="phbox">Memuat foto bukti…</figure>`:x.status==='selesai'?'<p class="hint">Foto bukti sudah dihapus otomatis (lebih dari '+KEEP_PHOTO_DAYS+' hari).</p>':''}
  <div id="fin"></div>${a?`<div class="acts" id="dacts">${a}</div>`:''}
  <h3>Riwayat & komentar</h3><ul class="log">${(x.log||[]).slice().sort((m,n)=>n.t-m.t).map(l=>`<li><b>${esc(uname(l.who))}</b> ${esc(l.msg)}<time>${esc(when(l.t))}</time></li>`).join('')}</ul>
- ${can?`<form id="cmt" data-id="${esc(x.id)}" class="cmt"><input name="c" placeholder="Tulis komentar…" autocomplete="off" aria-label="Komentar"><button class="btn">Kirim</button></form>`:''}
+ ${can?cmtBox(x):''}
  ${adm?`<div class="acts" id="aacts"><button class="btn" data-act="edit" data-id="${esc(x.id)}">Ubah</button><button class="btn dang" data-act="del" data-id="${esc(x.id)}">Hapus</button></div>`:''}
  <div class="acts"><button class="btn" data-act="close">Tutup</button></div>`,'detail',id);
  if(x.hasPhoto)loadPhoto(x)}
@@ -349,6 +357,9 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  if(d.go){filt={st:d.go,who:'',q:''};tab='tugas';render();scrollTo(0,0);return}
  if(d.who&&b.classList.contains('prow')){filt={st:'semua',who:d.who,q:''};tab='tugas';render();scrollTo(0,0);return}
  if(d.st){filt.st=d.st;render();return}
+ if(d.q!==undefined&&$('#cmt')){const ta=$('#cmt').elements.c;ta.value=d.q;ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);updWa();return}
+ if(d.act==='cmtwa'){const f=$('#cmt'),c=f.elements.c.value.trim();if(!c){e.preventDefault();toast('Tulis komentar dulu');return}
+  updWa();const x=byId(f.dataset.id);f.elements.c.value='';W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}));return}
  if(b.id==='fab')return openForm();
  if(b.id==='me')return openSheet(`<h2>${esc(me.name)}</h2><p class="sub">@${esc(me.username)} · ${isAdm()?'Admin':'Anggota'} · ${esc(me.jab)}</p><h3>Ganti password</h3><form id="pw"><label>Password lama<input name="o" type="password" autocomplete="current-password" required></label><label>Password baru (min. 6)<input name="n" type="password" autocomplete="new-password" required></label><div class="err" id="pwerr"></div><button class="btn" style="width:100%">Simpan password</button></form><div class="acts"><button class="btn dang" data-act="logout">Keluar</button><button class="btn" data-act="close">Tutup</button></div>`,'me');
  if(d.v&&b.parentElement.dataset.seg){const k=b.parentElement.dataset.seg;F[k]=d.v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));if(k==='rep')syncForm();return}
@@ -393,9 +404,8 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
  if(f.id==='pw'){const er=$('#pwerr'),n=f.elements.n.value;if(n.length<6)return er.textContent='Password baru minimal 6 karakter';er.textContent='Menyimpan…';
   try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,f.elements.o.value));await updatePassword(u,n);closeSheet();toast('Password diganti')}catch(x){er.textContent=emsg(x)}return}
  if(f.id==='cmt'){const c=f.elements.c.value.trim();if(!c)return;f.elements.c.value='';const x=byId(f.dataset.id);
-  if(await W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}))){const to=me.id===x.to?x.by:x.to;
-   waPrompt(to,`💬 *KOMENTAR BARU*\n👤 ${me.name}\n📋 ${x.title}\n"${c}"\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?')}}});
-document.addEventListener('input',e=>{if(e.target.id==='fq'){filt.q=e.target.value;$('#list').innerHTML=listHtml()}});
+  W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}),'Komentar tersimpan')}});
+document.addEventListener('input',e=>{if(e.target.name==='c'&&e.target.closest('#cmt'))updWa();if(e.target.id==='fq'){filt.q=e.target.value;$('#list').innerHTML=listHtml()}});
 document.addEventListener('change',async e=>{const t=e.target;
  if(t.id==='fwho'){filt.who=t.value;$('#list').innerHTML=listHtml()}
  if(t.id==='jam'&&t.value)W(setDoc(doc(db,'settings','main'),{jam:t.value},{merge:true}),'Jam laporan: '+t.value);
