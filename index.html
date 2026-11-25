@@ -153,6 +153,18 @@ const tlink=x=>APP+'#t-'+x.id;
 function waPrompt(toId,text,title){const u=U[toId];if(!u||toId===me.id)return false;const n=waNum(u.wa);
  openSheet(`<h2>${esc(title||'Kabari lewat WA?')}</h2>`+(n?`<p class="sub">Pesan untuk ${esc(u.name)}:</p><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn" data-act="close">Lewati</button><a class="btn pri" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Kirim WA ke ${esc(u.name)}</a></div>`
   :`<p class="sub">No. WA ${esc(u.name)} belum diisi. Admin bisa mengisinya di menu Tim.</p><div class="acts"><button class="btn pri" data-act="close">OK</button></div>`),'wa');return true}
+function msgFor(x){const lc=(x.log||[]).filter(l=>l.msg.startsWith('💬')).sort((a,c)=>c.t-a.t)[0];
+ const head=x.status==='selesai'?'✅ *TUGAS SELESAI*':isLate(x)?'⏰ *TUGAS TERLAMBAT*':'📋 *INFO TUGAS*';
+ const st=x.status==='selesai'?`Selesai ${when(x.doneAt)} (${x.doneAt>new Date(x.due).getTime()?'terlambat':'tepat waktu'})`:ST[stOf(x)];
+ return `${head}\n👤 ${uname(x.to)}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)}\n📌 Status: ${st}${lc?`\n💬 ${uname(lc.who)}: ${lc.msg.slice(2).trim()}`:''}\n\nBuka: ${tlink(x)}`}
+async function shareSheet(x){const other=me.id===x.to?x.by:x.to,text=msgFor(x);let file=null;
+ if(x.hasPhoto&&navigator.canShare){try{let d=photoCache[x.id];if(!d){const s2=await getDoc(doc(db,'photos',x.id));d=s2.exists()?s2.data():null;if(d)photoCache[x.id]=d}
+  if(d){const b=await (await fetch(d.data)).blob();const f=new File([b],'foto-bukti.jpg',{type:'image/jpeg'});if(navigator.canShare({files:[f]}))file=f}}catch(e){}}
+ shareFile=file;shareText=text;
+ if(!file)return waPrompt(other,text,'Kirim lewat WA')||toast('Tidak ada penerima');
+ const u=U[other],n=u&&waNum(u.wa);
+ openSheet(`<h2>Kirim lewat WA</h2><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn pri" data-act="sharephoto">Kirim dengan foto</button>${n?`<a class="btn" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Teks saja ke ${esc(u.name)}</a>`:''}</div><p class="hint">"Kirim dengan foto": pilih WhatsApp, lalu pilih ${esc(u?u.name:'penerima')} atau grup.</p><div class="acts"><button class="btn" data-act="close">Batal</button></div>`,'wa')}
+let shareFile=null,shareText='';
 let openHash=(location.hash.match(/^#t-(.+)$/)||[])[1]||null;
 window.addEventListener('hashchange',()=>{const m=location.hash.match(/^#t-(.+)$/);if(m){openHash=m[1];if(ready.all)refresh()}});
 let view='loading',me=null,U={},TO={},TD={},P={},SET={jam:'07:00'},ready={},unsubs=[],tab='',filt={st:'semua',who:'',q:''},F={},pending=null,sheet={mode:null,id:null},photoCache={},genDay='',cleaned=false,settingUp=false;
@@ -243,6 +255,7 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  const s=stOf(x),adm=isAdm(),can=adm||me.id===x.to,p=x.tpl&&P[x.tpl];
  let a='';if(can&&x.status==='baru')a+=`<button class="btn" data-act="start" data-id="${esc(x.id)}">Mulai kerjakan</button>`;
  if(can&&x.status!=='selesai')a+=`<button class="btn pri" data-act="finish" data-id="${esc(x.id)}">Tandai selesai</button>`;
+ const oth=me.id===x.to?x.by:x.to;if(can&&oth&&oth!==me.id&&oth!=='sistem')a+=`<button class="btn" data-act="wa" data-id="${esc(x.id)}">Kirim WA ke ${esc(uname(oth))}</button>`;
  if(adm&&isLate(x)&&x.to!==me.id)a+=`<button class="btn" data-act="remind" data-id="${esc(x.id)}">Ingatkan via WA</button>`;
  if(adm&&x.status==='selesai')a+=`<button class="btn" data-act="reopen" data-id="${esc(x.id)}">Buka lagi</button>`;
  openSheet(`<div class="tk-top"><span class="pill s-${s}">${ST[s]}</span>${x.prio==='T'?'<span class="pill pr">Prioritas tinggi</span>':''}</div><h2>${esc(x.title)}</h2>
@@ -354,6 +367,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
    const lc=(x.log||[]).filter(l=>l.who===me.id&&l.msg.startsWith('💬')).sort((a,c)=>c.t-a.t)[0];
    if(!waPrompt(x.by,`✅ *TUGAS SELESAI*\n👤 ${me.name}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)} (${late?'terlambat':'tepat waktu'})${lc?'\n💬 '+lc.msg.slice(2).trim():''}\n📷 Foto bukti: ${tlink(x)}`,'Kabari '+uname(x.by)+' lewat WA?'))openDetail(id,true)}else b.disabled=false;return}
  case 'reopen':await W(updateDoc(ref,{status:'proses',doneAt:null,hasPhoto:false,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi');deleteDoc(doc(db,'photos',id)).catch(()=>{});delete photoCache[id];return;
+ case 'wa':return shareSheet(byId(id));
+ case 'sharephoto':{try{await navigator.share({files:[shareFile],text:shareText});closeSheet()}catch(e){if(e.name!=='AbortError')toast('Gagal membagikan: '+e.message)}return}
  case 'remind':{const x=byId(id);return waPrompt(x.to,`⏰ *PENGINGAT TUGAS*\nHalo ${uname(x.to)}, tugas ini sudah lewat deadline:\n📋 ${x.title}\nDeadline: ${full(x.due)}\nMohon segera dikerjakan / kabari kendalanya.\n\nBuka: ${tlink(x)}`,'Ingatkan '+uname(x.to)+'?')}
  case 'setwa':{const u=U[id];return openSheet(`<form id="waf" data-id="${esc(id)}"><h2>No. WA ${esc(u.name)}</h2><label>Nomor WhatsApp<input name="w" type="tel" value="${esc(u.wa||'')}" placeholder="contoh 0812xxxx"></label><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form')}
  case 'edit':return openForm(id);
