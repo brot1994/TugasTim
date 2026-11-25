@@ -1,0 +1,28 @@
+TUGAS TIM - cara pasang
+=======================
+
+A. Pasang aturan keamanan Firestore (sekali saja)
+   1. Firebase console > project agi-tugas-tim > Firestore > tab Rules
+   2. Hapus semua isinya, tempel isi file firestore.rules, klik Publish
+
+B. Upload ke GitHub Pages
+   1. Buat repo baru "TugasTim" (Public)
+   2. Upload semua file di zip ini (index.html, sw.js, manifest.webmanifest,
+      icon-192.png, icon-512.png). firestore.rules & file ini boleh ikut, tidak dipakai web.
+   3. Settings > Pages > Source: Deploy from a branch > main / (root) > Save
+   4. Tunggu 1-2 menit, buka https://brot1994.github.io/TugasTim/
+
+C. Setup pertama
+   1. Buka link di atas > "Setup pertama kali (khusus Om Bram)" > buat password
+      (username admin utama: bram)
+   2. Menu Tim > buat akun Ketua Rival (peran Admin) dan akun tiap anggota
+   3. Bagikan link + username + password awal ke masing-masing
+
+D. Pasang di HP seperti aplikasi
+   Android (Chrome): menu titik tiga > "Tambahkan ke layar utama" / "Instal aplikasi"
+   iPhone (Safari): tombol Bagikan > "Tambahkan ke Layar Utama"
+
+Catatan
+- Tugas selesai tampil 60 hari terakhir; foto bukti dihapus otomatis setelah 90 hari.
+- Lupa password: admin tidak bisa mereset password orang lain. Buat akun baru
+  (username lain) lalu nonaktifkan akun lama.

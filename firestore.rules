@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function myDoc() { return /databases/$(db)/documents/users/$(request.auth.uid); }
+    function isMember() { return signedIn() && exists(myDoc()) && get(myDoc()).data.active == true; }
+    function isAdmin() { return isMember() && get(myDoc()).data.role == 'admin'; }
+
+    match /users/{uid} {
+      allow read: if isMember();
+      allow create: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && request.auth.token.email == 'bram@tugastim.app'
+            && request.resource.data.role == 'admin');
+      allow update, delete: if isAdmin();
+    }
+
+    match /tasks/{id} {
+      allow read: if isMember();
+      allow create: if isAdmin()
+        || (isMember()
+            && request.resource.data.tpl is string
+            && id == 'r_' + request.resource.data.tpl + '_' + request.resource.data.day
+            && exists(/databases/$(db)/documents/tpls/$(request.resource.data.tpl))
+            && request.resource.data.status == 'baru');
+      allow update: if isAdmin()
+        || (isMember() && resource.data.to == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'doneAt', 'log', 'hasPhoto']));
+      allow delete: if isAdmin();
+    }
+
+    match /photos/{id} {
+      allow read: if isMember();
+      allow create, update: if isAdmin()
+        || (isMember() && get(/databases/$(db)/documents/tasks/$(id)).data.to == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /tpls/{id} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{id} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+  }
+}
