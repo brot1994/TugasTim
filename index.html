@@ -188,6 +188,9 @@ async function saveRecovery(q1,q2,a1,a2,pw){const salt=crypto.getRandomValues(ne
  await setDoc(doc(db,'recovery',me.username),{q1,q2,salt:b64(salt),iv:b64(iv),ct:b64(ct),iter,uid:me.id,updated:Date.now()})}
 async function tryRecover(r,a1,a2){const k=await keyFrom(a1,a2,unb64(r.salt),r.iter);return dec.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(r.iv)},k,unb64(r.ct)))}
 const DEFPW='123456';
+function timeSel(nm,val){const [h,m]=(val||'16:00').split(':'),ms=[...new Set([...Array(12)].map((_,i)=>pad(i*5)).concat(m))].sort();
+ return `<span style="display:flex;gap:6px;align-items:center;margin-top:5px"><select name="${nm}_h" id="${nm}_h" aria-label="Jam" style="width:auto;flex:1">${[...Array(24)].map((_,i)=>`<option ${pad(i)===h?'selected':''}>${pad(i)}</option>`).join('')}</select><b>:</b><select name="${nm}_m" id="${nm}_m" aria-label="Menit" style="width:auto;flex:1">${ms.map(x=>`<option ${x===m?'selected':''}>${x}</option>`).join('')}</select></span>`}
+const tval=(root,nm)=>{const h=root.querySelector(`[name=${nm}_h]`),m=root.querySelector(`[name=${nm}_m]`);return h&&m?h.value+':'+m.value:''};
 function openHints(msg,cur){const opt=sel=>QUESTIONS.map((q,i)=>`<option value="${i}" ${sel===i?'selected':''}>${esc(q)}</option>`).join('');
  const needNew=lastPw===DEFPW;
  openSheet(`<form id="hint"><h2>Pertanyaan lupa password</h2><p class="sub">${esc(msg||'Kalau lupa password, jawab 2 pertanyaan ini untuk melihat password kamu. Pilih jawaban yang hanya kamu yang tahu.')}</p>
@@ -323,7 +326,7 @@ ulang(){const a=Object.values(P).sort((x,y)=>x.title.localeCompare(y.title));ret
 lap(){const t=reportText();return `<h1>Laporan pagi</h1><p class="sub">Teks ini yang dikirim ke grup WA tim.</p><pre class="wa" id="rep">${esc(t)}</pre>
  <div class="acts"><button class="btn" data-act="copy">Salin teks</button><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(t)}" target="_blank" rel="noopener">Buka WhatsApp</a></div>
  <p class="hint">Di WhatsApp, pilih grup tim lalu tekan kirim.</p>
- <div class="zone"><b>Kirim otomatis (tahap 2)</b><p>Nantinya laporan terkirim sendiri ke grup setiap hari jam <input type="time" id="jam" value="${esc(SET.jam||'07:00')}" aria-label="Jam laporan"> tanpa perlu menekan tombol.</p></div>`},
+ <div class="zone"><b>Kirim otomatis (tahap 2)</b><p>Nantinya laporan terkirim sendiri ke grup setiap hari jam <span style="display:inline-flex;width:170px;vertical-align:middle">${timeSel('jam',SET.jam||'07:00')}</span> tanpa perlu menekan tombol.</p></div>`},
 tim(){return `<h1>Tim</h1><p class="sub">Admin bisa membuat dan mengatur tugas. Anggota hanya melihat dan menyelesaikan tugasnya sendiri.</p><div class="people">${users().map(u=>`<div class="urow"><span class="av">${avatar(u.name)}</span><div class="grow"><b>${esc(u.name)}</b><small>@${esc(u.username)} · ${esc(u.jab)} · ${u.role==='admin'?'Admin':'Anggota'}</small><small>WA: ${u.wa?esc(u.wa):'<i>belum diisi</i>'}</small></div><button class="btn" data-act="setwa" data-id="${esc(u.id)}">No. WA</button>${u.id===me.id||u.username===OWNER?'':`<button class="btn" data-act="role" data-id="${esc(u.id)}">${u.role==='admin'?'Jadikan anggota':'Jadikan admin'}</button><button class="btn dang" data-act="delu" data-id="${esc(u.id)}">Nonaktifkan</button>`}</div>`).join('')}</div>
  <h3>Buat akun baru</h3><form id="addu"><div class="row2"><input name="n" placeholder="Nama tampilan" aria-label="Nama" required><input name="j" placeholder="Jabatan" aria-label="Jabatan"></div><div class="row2"><input name="u" placeholder="Username (tanpa spasi)" aria-label="Username" autocapitalize="none" autocomplete="off" required><input name="p" placeholder="Password awal (min. 6)" aria-label="Password" autocomplete="new-password" required></div><input name="w" type="tel" placeholder="No. WA (contoh 0812xxxx)" aria-label="No. WA" style="margin-bottom:10px"><select name="r" aria-label="Peran" style="margin-bottom:12px"><option value="member">Anggota</option><option value="admin">Admin</option></select><div class="err" id="adderr"></div><button class="btn pri" style="width:100%">Buat akun</button></form>
  <p class="hint">Berikan username & password awal ke anggota. Mereka bisa mengganti password sendiri lewat tombol nama di pojok kanan atas.</p>`},
@@ -389,7 +392,7 @@ function openForm(id){const x=id?byId(id):null,T=dstr(new Date()),wd=new Date().
  <div data-show="mingguan" hidden><div class="lbl">Hari</div><div class="days">${[1,2,3,4,5,6,0].map(d=>`<label class="day"><input type="checkbox" name="day" value="${d}" ${d===wd?'checked':''}><span>${HARI[d]}</span></label>`).join('')}</div></div>
  <div class="row2"><label data-show="sekali">Tanggal deadline<input type="date" name="tgl" value="${x?x.due.slice(0,10):T}"></label>
  <label data-show="bulanan" hidden>Tanggal tiap bulan (1–28)<input type="number" name="date" min="1" max="28" value="${Math.min(28,new Date().getDate())}"></label>
- <label>Jam deadline<input type="time" name="jam" value="${x?x.due.slice(11,16):'16:00'}"></label></div>
+ <label>Jam deadline (24 jam)${timeSel('jam',x?x.due.slice(11,16):'16:00')}</label></div>
  <label>Catatan<textarea name="note" rows="3" placeholder="Opsional">${x?esc(x.note):''}</textarea></label>
  <div data-show="sekali"><div class="lbl">Langkah-langkah (opsional) · teks dan tanggal target</div>
  <div id="srows">${(x&&x.steps||[]).map((st,i)=>stepRow(st,i,i)).join('')}</div>
@@ -400,7 +403,7 @@ function openForm(id){const x=id?byId(id):null,T=dstr(new Date()),wd=new Date().
 function readSteps(old){return [...document.querySelectorAll('#srows .srow')].map(r=>{const t=r.querySelector('.st').value.trim(),due=r.querySelector('.sd').value,i=r.dataset.i;
  if(!t)return null;const o=i!==''&&old?old[+i]:null;return o?{...o,t,due}:{t,due,done:false}}).filter(Boolean)}
 function syncForm(){document.querySelectorAll('#frm [data-show]').forEach(e=>e.hidden=e.dataset.show!==F.rep);document.querySelectorAll('#frm .row2').forEach(r=>r.style.gridTemplateColumns=F.rep==='harian'||F.rep==='mingguan'?'minmax(0,1fr)':'')}
-async function saveForm(f){const g=n=>(f.elements[n]&&f.elements[n].value||'').trim(),title=g('title'),to=g('to'),jam=g('jam')||'16:00',note=g('note'),ed=f.dataset.edit;
+async function saveForm(f){const g=n=>(f.elements[n]&&f.elements[n].value||'').trim(),title=g('title'),to=g('to'),jam=tval(f,'jam')||'16:00',note=g('note'),ed=f.dataset.edit;
  if(!title)return toast('Judul tugas wajib diisi');if(!to)return toast('Pilih penanggung jawab');
  const btn=f.querySelector('.pri');btn.disabled=true;
  if(ed){const x=byId(ed),day=g('tgl')||x.due.slice(0,10);
@@ -554,7 +557,7 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
 document.addEventListener('input',e=>{if(e.target.id==='snote'&&$('#savefin'))$('#savefin').disabled=!pending&&!e.target.value.trim();if(e.target.name==='c'&&e.target.closest('#cmt'))updWa();if(e.target.id==='fq'){filt.q=e.target.value;$('#list').innerHTML=listHtml()}});
 document.addEventListener('change',async e=>{const t=e.target;
  if(t.id==='fwho'){filt.who=t.value;$('#list').innerHTML=listHtml()}
- if(t.id==='jam'&&t.value)W(setDoc(doc(db,'settings','main'),{jam:t.value},{merge:true}),'Jam laporan: '+t.value);
+ if((t.id==='jam_h'||t.id==='jam_m')&&!t.closest('#frm')){const v=tval(document,'jam');W(setDoc(doc(db,'settings','main'),{jam:v},{merge:true}),'Jam laporan: '+v)}
  if(t.id==='ff'&&t.files[0]){$('#finfo').textContent='Memproses foto…';try{const dataUrl=await compress(t.files[0]);pending={kind:'photo',data:dataUrl};const im=$('#fprev');im.src=dataUrl;im.hidden=false;$('#vprev').hidden=true;
   $('#finfo').textContent='Ukuran setelah dikecilkan ± '+Math.round(dataUrl.length*.75/1024)+' KB';$('#savefin').disabled=false}catch(_){$('#finfo').textContent='Foto tidak bisa dibaca, coba foto lain.'}}});
 document.addEventListener('change',e=>{const t=e.target;if(t.id!=='stpl'||!t.value)return;const tp=STT[t.value];if(!tp)return;
