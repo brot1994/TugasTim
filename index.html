@@ -122,10 +122,10 @@ header{padding-top:env(safe-area-inset-top)}
 <script type="module">
 import {initializeApp,deleteApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {getAuth,initializeAuth,inMemoryPersistence,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,onAuthStateChanged,updatePassword,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import {initializeFirestore,getFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,onSnapshot,query,where,addDoc,setDoc,updateDoc,deleteDoc,getDoc,getDocs,runTransaction,arrayUnion,limit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {initializeFirestore,getFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,onSnapshot,query,where,addDoc,setDoc,updateDoc,deleteDoc,getDoc,getDocs,runTransaction,arrayUnion,limit,Bytes} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const cfg={apiKey:"AIzaSyBayp-pQr75qZC30vem2Y1vL3D8iUP7S3U",authDomain:"agi-tugas-tim.firebaseapp.com",projectId:"agi-tugas-tim",storageBucket:"agi-tugas-tim.firebasestorage.app",messagingSenderId:"223069654056",appId:"1:223069654056:web:a9058e0c7171c9cf5af91d"};
-const DOMAIN='tugastim.app',OWNER='bram',KEEP_DONE_DAYS=60,KEEP_PHOTO_DAYS=90;
+const DOMAIN='tugastim.app',OWNER='bram',KEEP_DONE_DAYS=60,KEEP_PHOTO_DAYS=90,KEEP_VIDEO_DAYS=30,MAX_VID=10;
 const app=initializeApp(cfg),auth=getAuth(app);
 let db;try{db=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})})}catch(e){db=getFirestore(app)}
 
@@ -160,11 +160,67 @@ function msgFor(x){const lc=(x.log||[]).filter(l=>l.msg.startsWith('💬')).sort
 async function shareSheet(x){const other=me.id===x.to?x.by:x.to,text=msgFor(x);let file=null;
  if(x.hasPhoto&&navigator.canShare){try{let d=photoCache[x.id];if(!d){const s2=await getDoc(doc(db,'photos',x.id));d=s2.exists()?s2.data():null;if(d)photoCache[x.id]=d}
   if(d){const b=await (await fetch(d.data)).blob();const f=new File([b],'foto-bukti.jpg',{type:'image/jpeg'});if(navigator.canShare({files:[f]}))file=f}}catch(e){}}
+ if(!file&&x.hasVideo&&navigator.canShare){try{const v=await loadVideo(x.id);if(v){const f=new File([v.blob],'video-bukti.'+(v.mime.includes('mp4')?'mp4':'webm'),{type:v.mime.split(';')[0]});if(navigator.canShare({files:[f]}))file=f}}catch(e){}}
  shareFile=file;shareText=text;
  if(!file)return waPrompt(other,text,'Kirim lewat WA')||toast('Tidak ada penerima');
  const u=U[other],n=u&&waNum(u.wa);
- openSheet(`<h2>Kirim lewat WA</h2><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn pri" data-act="sharephoto">Kirim dengan foto</button>${n?`<a class="btn" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Teks saja ke ${esc(u.name)}</a>`:''}</div><p class="hint">"Kirim dengan foto": pilih WhatsApp, lalu pilih ${esc(u?u.name:'penerima')} atau grup.</p><div class="acts"><button class="btn" data-act="close">Batal</button></div>`,'wa')}
-let shareFile=null,shareText='';
+ openSheet(`<h2>Kirim lewat WA</h2><pre class="wa">${esc(text)}</pre><div class="acts"><button class="btn pri" data-act="sharephoto">Kirim dengan ${file&&file.type.startsWith('video')?'video':'foto'}</button>${n?`<a class="btn" data-act="waclose" href="https://wa.me/${n}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Teks saja ke ${esc(u.name)}</a>`:''}</div><p class="hint">Pilih WhatsApp, lalu pilih ${esc(u?u.name:'penerima')} atau grup.</p><div class="acts"><button class="btn" data-act="close">Batal</button></div>`,'wa')}
+let showInfo=(()=>{try{return localStorage.getItem('tt-info-1')!=='x'}catch(e){return true}})();
+const INFO=()=>showInfo?`<div class="zone" style="margin:0 0 16px"><b>Yang baru di Tugas Tim</b><ul style="margin:8px 0 4px;padding-left:20px"><li><b>Kirim via WA</b>: tombol Kirim + WA di komentar, dan Kirim WA di setiap tugas.</li><li><b>Lupa password?</b> Atur 2 pertanyaan hint lewat tombol nama di kanan atas. Kalau lupa, tekan Lupa password? di halaman Masuk.</li><li><b>Bukti bisa video</b>: maksimal 10 detik, selain foto.</li></ul><button class="btn" data-act="infook" style="min-height:40px">Mengerti</button></div>`:'';
+let shareFile=null,shareText='',lastPw=null,videoCache={},rec=null,forgotRec=null,fails=0;
+const QUESTIONS=['Nama SD pertama kamu?','Kota kelahiran ibu kamu?','Nama hewan peliharaan pertama kamu?','Makanan favorit waktu kecil?','Nama teman sebangku waktu SMP?','Merek HP pertama kamu?','Nama guru favorit waktu sekolah?','Nama jalan rumah masa kecil kamu?','Klub bola / tim favorit kamu?','Nama panggilan kamu waktu kecil?'];
+const enc=new TextEncoder(),dec=new TextDecoder();
+const b64=u=>{let s='';for(const c of new Uint8Array(u))s+=String.fromCharCode(c);return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const norm=a=>String(a).trim().toLowerCase().replace(/\s+/g,' ');
+async function keyFrom(a1,a2,salt,iter){const base=await crypto.subtle.importKey('raw',enc.encode(norm(a1)+'|'+norm(a2)),'PBKDF2',false,['deriveKey']);
+ return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function saveRecovery(q1,q2,a1,a2,pw){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),iter=250000;
+ const k=await keyFrom(a1,a2,salt,iter),ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},k,enc.encode(pw));
+ await setDoc(doc(db,'recovery',me.username),{q1,q2,salt:b64(salt),iv:b64(iv),ct:b64(ct),iter,uid:me.id,updated:Date.now()})}
+async function tryRecover(r,a1,a2){const k=await keyFrom(a1,a2,unb64(r.salt),r.iter);return dec.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(r.iv)},k,unb64(r.ct)))}
+const DEFPW='123456';
+function openHints(msg,cur){const opt=sel=>QUESTIONS.map((q,i)=>`<option value="${i}" ${sel===i?'selected':''}>${esc(q)}</option>`).join('');
+ const needNew=lastPw===DEFPW;
+ openSheet(`<form id="hint"><h2>Pertanyaan lupa password</h2><p class="sub">${esc(msg||'Kalau lupa password, jawab 2 pertanyaan ini untuk melihat password kamu. Pilih jawaban yang hanya kamu yang tahu.')}</p>
+ ${lastPw?'':'<label>1. Password kamu saat ini<input name="p" type="password" autocomplete="current-password" required></label>'}
+ ${needNew||!lastPw?`<label>${needNew?'Password kamu masih 123456. ':''}Password baru (min. 6)${needNew?'':' · wajib diisi kalau password kamu masih 123456'}<input name="np" type="password" autocomplete="new-password" ${needNew?'required':''}></label>`:''}
+ <label>Pertanyaan 1<select name="q1">${opt(cur?cur.q1:0)}</select></label><label>Jawaban 1<input name="a1" autocomplete="off" required></label>
+ <label>Pertanyaan 2<select name="q2">${opt(cur?cur.q2:1)}</select></label><label>Jawaban 2<input name="a2" autocomplete="off" required></label>
+ <div class="err" id="herr"></div><div class="acts"><button type="button" class="btn" data-act="close">Nanti</button><button class="btn pri">Simpan</button></div></form>`,'form')}
+async function checkRecovery(){try{const r=await getDoc(doc(db,'recovery',me.username));if(!r.exists()&&sheet.mode===null)openHints()}catch(e){}}
+function forgotSheet(){forgotRec=null;openSheet(`<form id="forgot"><h2>Lupa password</h2><p class="sub">Jawab 2 pertanyaan yang pernah kamu atur untuk melihat password.</p><label>Username<input name="u" autocapitalize="none" autocomplete="username" required></label><div id="fq"></div><div class="err" id="ferr"></div><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Lanjut</button></div></form>`,'form')}
+async function migrateOwner(nid){try{const us=await getDocs(query(collection(db,'users'),where('username','==',OWNER)));
+ for(const d of us.docs){if(d.id===nid)continue;const old=d.id,od=d.data();if(od.wa)await updateDoc(doc(db,'users',nid),{wa:od.wa});
+  await updateDoc(doc(db,'users',old),{active:false,username:OWNER+'-lama-'+old.slice(0,4)});
+  for(const f of ['by','to'])for(const c of ['tasks','tpls']){const ts=await getDocs(query(collection(db,c),where(f,'==',old)));for(const t of ts.docs)await updateDoc(t.ref,{[f]:nid})}}}catch(e){console.warn('migrate',e)}}
+const pickMime=audio=>(audio?['video/webm;codecs=vp8,opus','video/webm','video/mp4']:['video/webm;codecs=vp8','video/webm','video/mp4']).find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';
+function setVideo(blob,dur){if(blob.size>3500000){$('#finfo').textContent='Video terlalu besar, coba rekam ulang lebih singkat.';return}
+ pending={kind:'video',blob,dur};const v=$('#vprev');v.src=URL.createObjectURL(blob);v.hidden=false;$('#fprev').hidden=true;
+ $('#finfo').textContent=`Video ${Math.round(dur)} detik · ± ${Math.round(blob.size/1024)} KB`;$('#savefin').disabled=false}
+async function startRec(){if(!navigator.mediaDevices||!window.MediaRecorder)return toast('HP ini tidak mendukung rekam video di aplikasi, pakai "Pilih video"');
+ let st;const vc={facingMode:'environment',width:{ideal:640},height:{ideal:480}};
+ try{st=await navigator.mediaDevices.getUserMedia({video:vc,audio:true})}catch(e){try{st=await navigator.mediaDevices.getUserMedia({video:vc})}catch(e2){return toast('Kamera tidak bisa dibuka. Izinkan akses kamera untuk browser.')}}
+ const box=$('#vrec');box.innerHTML=`<video id="live" autoplay muted playsinline style="width:100%;max-height:340px;border-radius:10px;background:#000"></video><div class="acts"><button type="button" class="btn dang" data-act="stoprec">Stop · <span id="cd">${MAX_VID}</span> dtk</button></div>`;
+ $('#live').srcObject=st;const ch=[],t0=Date.now();
+ const r=new MediaRecorder(st,{mimeType:pickMime(st.getAudioTracks().length>0)||undefined,videoBitsPerSecond:500000,audioBitsPerSecond:32000});
+ r.ondataavailable=e=>e.data.size&&ch.push(e.data);
+ r.onstop=()=>{st.getTracks().forEach(t=>t.stop());clearInterval(rec.tm);box.innerHTML='';setVideo(new Blob(ch,{type:r.mimeType||'video/webm'}),Math.min(MAX_VID,(Date.now()-t0)/1000));rec=null};
+ rec={r,tm:setInterval(()=>{const left=MAX_VID-Math.floor((Date.now()-t0)/1000);const c=$('#cd');if(c)c.textContent=Math.max(0,left);if(left<=0&&r.state==='recording')r.stop()},250)};r.start(500)}
+async function reencode(file){const v=document.createElement('video');v.muted=true;v.playsInline=true;v.src=URL.createObjectURL(file);
+ await new Promise((res,rej)=>{v.onloadedmetadata=res;v.onerror=rej});const sc=Math.min(1,640/Math.max(v.videoWidth,v.videoHeight));
+ const c=document.createElement('canvas');c.width=Math.max(2,Math.round(v.videoWidth*sc/2)*2);c.height=Math.max(2,Math.round(v.videoHeight*sc/2)*2);const g=c.getContext('2d');
+ const r=new MediaRecorder(c.captureStream(24),{mimeType:pickMime(false)||undefined,videoBitsPerSecond:500000}),ch=[];r.ondataavailable=e=>e.data.size&&ch.push(e.data);
+ const dur=Math.min(MAX_VID,v.duration||MAX_VID),done=new Promise(res=>r.onstop=res);
+ await v.play();r.start(500);(function draw(){g.drawImage(v,0,0,c.width,c.height);if(v.currentTime>=dur||v.ended){v.pause();if(r.state==='recording')r.stop();return}requestAnimationFrame(draw)})();
+ await done;URL.revokeObjectURL(v.src);return {blob:new Blob(ch,{type:r.mimeType||'video/webm'}),dur,cut:(v.duration||0)>MAX_VID+0.5}}
+async function saveVideo(id,blob,dur){const buf=new Uint8Array(await blob.arrayBuffer()),CH=900000,n=Math.ceil(buf.length/CH);
+ for(let i=0;i<n;i++)await setDoc(doc(db,'vchunks',id+'_'+i),{task:id,i,d:Bytes.fromUint8Array(buf.subarray(i*CH,(i+1)*CH)),at:Date.now()});
+ await setDoc(doc(db,'videos',id),{n,mime:blob.type,dur,size:buf.length,at:Date.now()})}
+async function loadVideo(id){if(videoCache[id])return videoCache[id];const m=await getDoc(doc(db,'videos',id));if(!m.exists())return null;const v=m.data(),parts=[];
+ for(let i=0;i<v.n;i++){const c=await getDoc(doc(db,'vchunks',id+'_'+i));if(!c.exists())return null;parts.push(c.data().d.toUint8Array())}
+ const blob=new Blob(parts,{type:v.mime});return videoCache[id]={blob,url:URL.createObjectURL(blob),at:v.at,mime:v.mime}}
+async function delVideo(id){try{const m=await getDoc(doc(db,'videos',id));const n=m.exists()?m.data().n:4;for(let i=0;i<n;i++)await deleteDoc(doc(db,'vchunks',id+'_'+i)).catch(()=>{});await deleteDoc(doc(db,'videos',id))}catch(e){}delete videoCache[id]}
 const QUICK_M=['Siap, segera dikerjakan','Sedang dikerjakan','Sudah selesai, mohon dicek','Ada kendala: ','Minta waktu tambahan sampai ','Butuh bantuan'];
 const QUICK_A=['Terima kasih, bagus 👍','Tolong segera dikerjakan','Mohon diperbaiki: ','Kabari progresnya ya','Deadline diperpanjang sampai ','OK, saya cek dulu'];
 function cmtBox(x){const oth=me.id===x.to?x.by:x.to,u=U[oth],n=u&&oth!==me.id&&waNum(u.wa);
@@ -218,7 +274,7 @@ ring(){const {L,H,D}=groups(),pro=tasks().filter(x=>x.status==='proses').length;
  const wk=Date.now()-7*864e5;
  const rows=users().map(u=>{const m=tasks().filter(x=>x.to===u.id),l=m.filter(isLate).length,o=m.filter(x=>x.status!=='selesai').length-l,k=m.filter(x=>x.status==='selesai'&&x.doneAt>wk).length,tot=l+o+k;
   if(!tot)return '';return `<button class="prow" data-who="${esc(u.id)}"><span>${esc(u.name)}</span><span class="bar"><i class="b-late" style="width:${l/tot*100}%"></i><i class="b-open" style="width:${o/tot*100}%"></i><i class="b-ok" style="width:${k/tot*100}%"></i></span><span class="pn">${l?`<b class="d-late">${l} telat</b> · `:''}${o} buka · ${k} beres</span></button>`}).join('');
- return `<h1>${esc(title)}</h1><p class="sub">Kondisi tim saat ini.</p>
+ return INFO()+`<h1>${esc(title)}</h1><p class="sub">Kondisi tim saat ini.</p>
  <div class="cnt"><button data-go="late"><span class="num d-late">${L.length}</span><small>Terlambat</small></button><button data-go="hari"><span class="num d-today">${H.length}</span><small>Deadline hari ini</small></button><button data-go="proses"><span class="num" style="color:var(--pro)">${pro}</span><small>Dikerjakan</small></button><button data-go="selesai"><span class="num" style="color:var(--ok)">${D.length}</span><small>Selesai kemarin</small></button></div>
  <h3>Per orang</h3><div class="people">${rows||'<div class="empty">Belum ada tugas.</div>'}</div>
  <div class="legend"><span><i class="b-late"></i>Terlambat</span><span><i class="b-open"></i>Belum selesai</span><span><i class="b-ok"></i>Selesai 7 hari terakhir</span></div>
@@ -234,14 +290,14 @@ tim(){return `<h1>Tim</h1><p class="sub">Admin bisa membuat dan mengatur tugas. 
  <h3>Buat akun baru</h3><form id="addu"><div class="row2"><input name="n" placeholder="Nama tampilan" aria-label="Nama" required><input name="j" placeholder="Jabatan" aria-label="Jabatan"></div><div class="row2"><input name="u" placeholder="Username (tanpa spasi)" aria-label="Username" autocapitalize="none" autocomplete="off" required><input name="p" placeholder="Password awal (min. 6)" aria-label="Password" autocomplete="new-password" required></div><input name="w" type="tel" placeholder="No. WA (contoh 0812xxxx)" aria-label="No. WA" style="margin-bottom:10px"><select name="r" aria-label="Peran" style="margin-bottom:12px"><option value="member">Anggota</option><option value="admin">Admin</option></select><div class="err" id="adderr"></div><button class="btn pri" style="width:100%">Buat akun</button></form>
  <p class="hint">Berikan username & password awal ke anggota. Mereka bisa mengganti password sendiri lewat tombol nama di pojok kanan atas.</p>`},
 mine(){const a=tasks().filter(x=>x.to===me.id&&x.status!=='selesai').sort(sortT),l=a.filter(isLate).length;
- return `<h1>Halo, ${esc(me.name)}</h1><p class="sub">${a.length} tugas belum selesai${l?`, <b class="d-late">${l} terlambat</b>`:''}.</p>${listOr(a,'Tidak ada tugas. Mantap!')}`},
+ return INFO()+`<h1>Halo, ${esc(me.name)}</h1><p class="sub">${a.length} tugas belum selesai${l?`, <b class="d-late">${l} terlambat</b>`:''}.</p>${listOr(a,'Tidak ada tugas. Mantap!')}`},
 done(){const a=tasks().filter(x=>x.to===me.id&&x.status==='selesai').sort(sortT);return `<h1>Sudah selesai</h1><p class="sub">${a.length} tugas dalam ${KEEP_DONE_DAYS} hari terakhir.</p>${listOr(a,'Belum ada tugas yang selesai.')}`}};
 
 function render(){$('#hdate').textContent=new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
  if(view!=='app'){document.body.classList.add('out');$('#nav').innerHTML='';$('#fab').hidden=true;
   if(view==='loading')$('#main').innerHTML='<div class="center">Memuat…</div>';
   else if(view==='blocked')$('#main').innerHTML='<div class="login"><h1>Akun tidak aktif</h1><p class="sub">Akun ini belum terdaftar di tim atau sudah dinonaktifkan. Hubungi admin.</p><button class="btn pri" data-act="logout">Keluar</button></div>';
-  else if(!$('#login'))$('#main').innerHTML=`<div class="login"><h1>Masuk</h1><p class="sub">Pakai username & password dari admin.</p><form id="login"><label>Username<input name="u" autocapitalize="none" autocomplete="username" required></label><label>Password<input name="p" type="password" autocomplete="current-password" required></label><div class="err" id="lerr"></div><button class="btn pri" style="width:100%">Masuk</button></form><p style="text-align:center"><button class="link" data-act="setup">Setup pertama kali (khusus Bram)</button></p></div>`;
+  else if(!$('#login'))$('#main').innerHTML=`<div class="login"><h1>Masuk</h1><p class="sub">Pakai username & password dari admin.</p><form id="login"><label>Username<input name="u" autocapitalize="none" autocomplete="username" required></label><label>Password<input name="p" type="password" autocomplete="current-password" required></label><div class="err" id="lerr"></div><button class="btn pri" style="width:100%">Masuk</button></form><p style="text-align:center"><button class="link" data-act="forgot">Lupa password?</button></p><p style="text-align:center"><button class="link" data-act="setup">Setup pertama kali (khusus Bram)</button></p></div>`;
   return}
  document.body.classList.remove('out');
  $('#who').textContent=me.name;$('#role').textContent=isAdm()?'Admin':'Anggota';
@@ -268,13 +324,15 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  if(adm&&x.status==='selesai')a+=`<button class="btn" data-act="reopen" data-id="${esc(x.id)}">Buka lagi</button>`;
  openSheet(`<div class="tk-top"><span class="pill s-${s}">${ST[s]}</span>${x.prio==='T'?'<span class="pill pr">Prioritas tinggi</span>':''}</div><h2>${esc(x.title)}</h2>
  <dl class="meta"><dt>Penanggung jawab</dt><dd>${esc(uname(x.to))}</dd><dt>Deadline</dt><dd>${esc(full(x.due))} · <span class="d-${s}">${esc(dueTxt(x))}</span></dd><dt>Prioritas</dt><dd>${PRIO[x.prio]||'-'}</dd><dt>Dari</dt><dd>${esc(uname(x.by))}</dd>${p?`<dt>Jadwal</dt><dd>${esc(ruleTxt(p))}</dd>`:''}</dl>
- ${x.note?`<p class="note">${esc(x.note)}</p>`:''}${x.hasPhoto?`<figure class="ph" id="phbox">Memuat foto bukti…</figure>`:x.status==='selesai'?'<p class="hint">Foto bukti sudah dihapus otomatis (lebih dari '+KEEP_PHOTO_DAYS+' hari).</p>':''}
+ ${x.note?`<p class="note">${esc(x.note)}</p>`:''}${x.hasPhoto?`<figure class="ph" id="phbox">Memuat foto bukti…</figure>`:''}${x.hasVideo?`<figure class="ph" id="vbox">Memuat video bukti…</figure>`:''}${x.status==='selesai'&&!x.hasPhoto&&!x.hasVideo?'<p class="hint">Bukti foto/video sudah dihapus otomatis.</p>':''}
  <div id="fin"></div>${a?`<div class="acts" id="dacts">${a}</div>`:''}
  <h3>Riwayat & komentar</h3><ul class="log">${(x.log||[]).slice().sort((m,n)=>n.t-m.t).map(l=>`<li><b>${esc(uname(l.who))}</b> ${esc(l.msg)}<time>${esc(when(l.t))}</time></li>`).join('')}</ul>
  ${can?cmtBox(x):''}
  ${adm?`<div class="acts" id="aacts"><button class="btn" data-act="edit" data-id="${esc(x.id)}">Ubah</button><button class="btn dang" data-act="del" data-id="${esc(x.id)}">Hapus</button></div>`:''}
  <div class="acts"><button class="btn" data-act="close">Tutup</button></div>`,'detail',id);
- if(x.hasPhoto)loadPhoto(x)}
+ if(x.hasPhoto)loadPhoto(x);
+ if(x.hasVideo)loadVideo(x.id).then(v=>{const b=$('#vbox');if(!b||sheet.id!==x.id)return;if(!v){b.textContent='Video bukti tidak tersedia.';return}
+  b.innerHTML=`<video controls playsinline preload="metadata" style="width:100%;max-height:340px;border-radius:10px;background:#000"></video><figcaption>Video bukti · ${esc(when(v.at))}</figcaption>`;b.querySelector('video').src=v.url}).catch(()=>{const b=$('#vbox');if(b)b.textContent='Video bukti gagal dimuat.'})}
 async function loadPhoto(x){let d=photoCache[x.id];
  if(!d){try{const s=await getDoc(doc(db,'photos',x.id));d=s.exists()?s.data():null;if(d)photoCache[x.id]=d}catch(e){d=null}}
  const box=$('#phbox');if(!box||sheet.id!==x.id)return;
@@ -316,7 +374,9 @@ async function gen(){const t=new Date(),T=dstr(t);if(genDay===T)return;genDay=T;
    tx.set(ref,{title:p.title,to:p.to,by:p.by,due:T+'T'+p.time,day:T,prio:p.prio,status:'baru',note:p.note||'',doneAt:null,tpl:p.id,hasPhoto:false,created:Date.now(),log:[{t:Date.now(),who:'sistem',msg:'membuat tugas berulang otomatis'}]})})}catch(e){console.warn('gen',e)}}}
 async function cleanup(){if(cleaned)return;cleaned=true;
  try{const s=await getDocs(query(collection(db,'photos'),where('at','<',Date.now()-KEEP_PHOTO_DAYS*864e5),limit(25)));
-  for(const d of s.docs){await deleteDoc(d.ref);try{await updateDoc(doc(db,'tasks',d.id),{hasPhoto:false})}catch(_){}}}catch(e){console.warn('cleanup',e)}}
+  for(const d of s.docs){await deleteDoc(d.ref);try{await updateDoc(doc(db,'tasks',d.id),{hasPhoto:false})}catch(_){}}}catch(e){console.warn('cleanup',e)}
+ try{const s=await getDocs(query(collection(db,'videos'),where('at','<',Date.now()-KEEP_VIDEO_DAYS*864e5),limit(10)));
+  for(const d of s.docs){await delVideo(d.id);try{await updateDoc(doc(db,'tasks',d.id),{hasVideo:false})}catch(_){}}}catch(e){console.warn('cleanup v',e)}}
 
 async function compress(file,max=1024,q=0.6){const url=URL.createObjectURL(file);try{const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
  const sc=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
@@ -337,7 +397,7 @@ async function boot(u){unsubs.forEach(f=>f());unsubs=[];me=null;U={};TO={};TD={}
  view='loading';render();
  try{const s=await getDoc(doc(db,'users',u.uid));if(!s.exists()||s.data().active===false){view='blocked';render();return}me={id:u.uid,...s.data()}}
  catch(e){console.error(e);view='blocked';render();return}
- view='app';tab='';render();listen()}
+ view='app';tab='';render();listen();setTimeout(checkRecovery,2500)}
 onAuthStateChanged(auth,u=>{if(!settingUp)boot(u)});
 
 async function createAccount(f){const g=n=>f.elements[n].value.trim(),name=g('n'),jab=g('j')||'Anggota',un=g('u').toLowerCase(),pw=f.elements.p.value,role=g('r'),er=$('#adderr');
@@ -361,30 +421,37 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  if(d.act==='cmtwa'){const f=$('#cmt'),c=f.elements.c.value.trim();if(!c){e.preventDefault();toast('Tulis komentar dulu');return}
   updWa();const x=byId(f.dataset.id);f.elements.c.value='';W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}));return}
  if(b.id==='fab')return openForm();
- if(b.id==='me')return openSheet(`<h2>${esc(me.name)}</h2><p class="sub">@${esc(me.username)} · ${isAdm()?'Admin':'Anggota'} · ${esc(me.jab)}</p><h3>Ganti password</h3><form id="pw"><label>Password lama<input name="o" type="password" autocomplete="current-password" required></label><label>Password baru (min. 6)<input name="n" type="password" autocomplete="new-password" required></label><div class="err" id="pwerr"></div><button class="btn" style="width:100%">Simpan password</button></form><div class="acts"><button class="btn dang" data-act="logout">Keluar</button><button class="btn" data-act="close">Tutup</button></div>`,'me');
+ if(b.id==='me')return openSheet(`<h2>${esc(me.name)}</h2><p class="sub">@${esc(me.username)} · ${isAdm()?'Admin':'Anggota'} · ${esc(me.jab)}</p><h3>Ganti password</h3><form id="pw"><label>Password lama<input name="o" type="password" autocomplete="current-password" required></label><label>Password baru (min. 6)<input name="n" type="password" autocomplete="new-password" required></label><div class="err" id="pwerr"></div><button class="btn" style="width:100%">Simpan password</button></form><div class="acts"><button class="btn" data-act="hints">Atur pertanyaan lupa password</button></div><div class="acts"><button class="btn dang" data-act="logout">Keluar</button><button class="btn" data-act="close">Tutup</button></div>`,'me');
  if(d.v&&b.parentElement.dataset.seg){const k=b.parentElement.dataset.seg;F[k]=d.v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));if(k==='rep')syncForm();return}
  const ref=id&&doc(db,'tasks',id);
  switch(d.act){
- case 'close':return closeSheet();
+ case 'close':if(rec&&rec.r.state==='recording')rec.r.stop();return closeSheet();
  case 'waclose':setTimeout(closeSheet,400);return;
  case 'logout':closeSheet();return signOut(auth);
  case 'setup':return openSheet(`<form id="setup"><h2>Setup pertama kali</h2><p class="sub">Membuat akun admin utama dengan username <b>${OWNER}</b>. Hanya perlu sekali.</p><label>Password baru (min. 6)<input name="p" type="password" autocomplete="new-password" required></label><label>Ulangi password<input name="p2" type="password" autocomplete="new-password" required></label><div class="err" id="serr"></div><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Buat akun admin</button></div></form>`,'setup');
  case 'start':return W(updateDoc(ref,{status:'proses',log:arrayUnion(entry('mulai mengerjakan'))}),'Status: dikerjakan');
- case 'finish':pending=null;sheet.mode='finish';$('#dacts').hidden=true;$('#fin').innerHTML=`<div class="fin"><b>Foto bukti wajib</b><p>Ambil foto hasil pekerjaan. Foto otomatis dikecilkan sebelum disimpan.</p><label class="btn">Ambil / pilih foto<input type="file" accept="image/*" capture="environment" id="ff" hidden></label><img id="fprev" hidden alt="Pratinjau foto bukti"><small id="finfo"></small><div class="acts"><button class="btn" data-act="cancelfin" data-id="${esc(id)}">Batal</button><button class="btn pri" id="savefin" data-act="savefin" data-id="${esc(id)}" disabled>Simpan selesai</button></div></div>`;$('#fin').scrollIntoView({behavior:'smooth',block:'center'});return;
+ case 'finish':pending=null;sheet.mode='finish';$('#dacts').hidden=true;$('#fin').innerHTML=`<div class="fin"><b>Bukti wajib: foto atau video</b><p>Foto, atau video maksimal ${MAX_VID} detik. Otomatis dikecilkan sebelum disimpan.</p><div class="acts" style="margin:0 0 8px"><label class="btn">Foto<input type="file" accept="image/*" capture="environment" id="ff" hidden></label><button type="button" class="btn" data-act="recvid">Rekam video</button><label class="btn">Pilih video<input type="file" accept="video/*" id="fv" hidden></label></div><div id="vrec"></div><img id="fprev" hidden alt="Pratinjau foto bukti"><video id="vprev" hidden controls playsinline style="width:100%;max-height:340px;border-radius:10px;background:#000"></video><small id="finfo"></small><div class="acts"><button class="btn" data-act="cancelfin" data-id="${esc(id)}">Batal</button><button class="btn pri" id="savefin" data-act="savefin" data-id="${esc(id)}" disabled>Simpan selesai</button></div></div>`;$('#fin').scrollIntoView({behavior:'smooth',block:'center'});return;
  case 'cancelfin':return openDetail(id);
- case 'savefin':{if(!pending)return toast('Foto bukti wajib diisi');b.disabled=true;$('#finfo').textContent='Menyimpan…';const ph=pending;
-  const ok=await W(setDoc(doc(db,'photos',id),{data:ph,at:Date.now()}).then(()=>updateDoc(ref,{status:'selesai',doneAt:Date.now(),hasPhoto:true,log:arrayUnion(entry('menandai selesai dengan foto bukti'))})),'Tugas selesai 👍');
-  if(ok){photoCache[id]={data:ph,at:Date.now()};pending=null;const x=byId(id),now=Date.now(),late=now>new Date(x.due).getTime();
+ case 'savefin':{if(!pending)return toast('Bukti foto atau video wajib diisi');b.disabled=true;$('#finfo').textContent='Menyimpan…';const pd=pending,isV=pd.kind==='video';
+  const ok=await W((isV?saveVideo(id,pd.blob,pd.dur):setDoc(doc(db,'photos',id),{data:pd.data,at:Date.now()})).then(()=>updateDoc(ref,isV?{status:'selesai',doneAt:Date.now(),hasVideo:true,log:arrayUnion(entry('menandai selesai dengan video bukti'))}:{status:'selesai',doneAt:Date.now(),hasPhoto:true,log:arrayUnion(entry('menandai selesai dengan foto bukti'))})),'Tugas selesai 👍');
+  if(ok){if(!isV)photoCache[id]={data:pd.data,at:Date.now()};pending=null;const x=byId(id),now=Date.now(),late=now>new Date(x.due).getTime();
    const lc=(x.log||[]).filter(l=>l.who===me.id&&l.msg.startsWith('💬')).sort((a,c)=>c.t-a.t)[0];
-   if(!waPrompt(x.by,`✅ *TUGAS SELESAI*\n👤 ${me.name}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)} (${late?'terlambat':'tepat waktu'})${lc?'\n💬 '+lc.msg.slice(2).trim():''}\n📷 Foto bukti: ${tlink(x)}`,'Kabari '+uname(x.by)+' lewat WA?'))openDetail(id,true)}else b.disabled=false;return}
- case 'reopen':await W(updateDoc(ref,{status:'proses',doneAt:null,hasPhoto:false,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi');deleteDoc(doc(db,'photos',id)).catch(()=>{});delete photoCache[id];return;
+   if(!waPrompt(x.by,`✅ *TUGAS SELESAI*\n👤 ${me.name}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)} (${late?'terlambat':'tepat waktu'})${lc?'\n💬 '+lc.msg.slice(2).trim():''}\n📷 Bukti: ${tlink(x)}`,'Kabari '+uname(x.by)+' lewat WA?'))openDetail(id,true)}else b.disabled=false;return}
+ case 'reopen':{const hv=byId(id).hasVideo;await W(updateDoc(ref,{status:'proses',doneAt:null,hasPhoto:false,hasVideo:false,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi');deleteDoc(doc(db,'photos',id)).catch(()=>{});delete photoCache[id];if(hv)delVideo(id);return}
+ case 'infook':showInfo=false;try{localStorage.setItem('tt-info-1','x')}catch(_){}return render();
+ case 'recvid':return startRec();
+ case 'stoprec':if(rec&&rec.r.state==='recording')rec.r.stop();return;
+ case 'forgot':return forgotSheet();
+ case 'hints':{let cur=null;try{const r=await getDoc(doc(db,'recovery',me.username));if(r.exists())cur=r.data()}catch(_){}return openHints(null,cur)}
+ case 'pwshow':{const el=$('#pwshown');el.textContent=el.dataset.pw;return}
+ case 'loginwith':{const un=b.dataset.u,pw=$('#pwshown').dataset.pw;closeSheet();lastPw=pw;return signInWithEmailAndPassword(auth,mail(un),pw).catch(x=>toast(emsg(x)))}
  case 'wa':return shareSheet(byId(id));
  case 'sharephoto':{try{await navigator.share({files:[shareFile],text:shareText});closeSheet()}catch(e){if(e.name!=='AbortError')toast('Gagal membagikan: '+e.message)}return}
  case 'remind':{const x=byId(id);return waPrompt(x.to,`⏰ *PENGINGAT TUGAS*\nHalo ${uname(x.to)}, tugas ini sudah lewat deadline:\n📋 ${x.title}\nDeadline: ${full(x.due)}\nMohon segera dikerjakan / kabari kendalanya.\n\nBuka: ${tlink(x)}`,'Ingatkan '+uname(x.to)+'?')}
  case 'setwa':{const u=U[id];return openSheet(`<form id="waf" data-id="${esc(id)}"><h2>No. WA ${esc(u.name)}</h2><label>Nomor WhatsApp<input name="w" type="tel" value="${esc(u.wa||'')}" placeholder="contoh 0812xxxx"></label><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form')}
  case 'edit':return openForm(id);
  case 'del':$('#aacts').innerHTML=`<span style="flex:1 1 100%">Hapus tugas ini?</span><button class="btn" data-act="cancelfin" data-id="${esc(id)}">Batal</button><button class="btn dang" data-act="del2" data-id="${esc(id)}">Ya, hapus</button>`;return;
- case 'del2':closeSheet();await W(deleteDoc(ref),'Tugas dihapus');deleteDoc(doc(db,'photos',id)).catch(()=>{});return;
+ case 'del2':{const hv=byId(id)&&byId(id).hasVideo;closeSheet();await W(deleteDoc(ref),'Tugas dihapus');deleteDoc(doc(db,'photos',id)).catch(()=>{});if(hv)delVideo(id);return}
  case 'tog':{const p=P[id];genDay='';return W(updateDoc(doc(db,'tpls',id),{on:!p.on}),p.on?'Dijeda':'Diaktifkan')}
  case 'deltpl':if(d.sure)return W(deleteDoc(doc(db,'tpls',id)),'Tugas berulang dihapus');b.dataset.sure='1';b.textContent='Yakin hapus?';return;
  case 'role':{const u=U[id];const r=u.role==='admin'?'member':'admin';return W(updateDoc(doc(db,'users',id),{role:r}),u.name+' sekarang '+(r==='admin'?'admin':'anggota'))}
@@ -393,24 +460,45 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  }});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;
  if(f.id==='login'){const er=$('#lerr'),btn=f.querySelector('button');er.textContent='';btn.disabled=true;
-  try{await signInWithEmailAndPassword(auth,mail(f.elements.u.value),f.elements.p.value)}catch(x){er.textContent=emsg(x)}btn.disabled=false;return}
+  lastPw=f.elements.p.value;try{await signInWithEmailAndPassword(auth,mail(f.elements.u.value),f.elements.p.value)}catch(x){er.textContent=emsg(x)}btn.disabled=false;return}
  if(f.id==='setup'){const er=$('#serr'),p=f.elements.p.value;if(p.length<6)return er.textContent='Password minimal 6 karakter';if(p!==f.elements.p2.value)return er.textContent='Password tidak sama';
   er.textContent='Membuat akun…';settingUp=true;
-  try{const c=await createUserWithEmailAndPassword(auth,mail(OWNER),p);await setDoc(doc(db,'users',c.user.uid),{name:'Bram',username:OWNER,jab:'Admin',role:'admin',active:true,created:Date.now()});settingUp=false;closeSheet();boot(c.user)}
+  try{const c=await createUserWithEmailAndPassword(auth,mail(OWNER),p);await setDoc(doc(db,'users',c.user.uid),{name:'Bram',username:OWNER,jab:'Admin',role:'admin',active:true,created:Date.now()});await migrateOwner(c.user.uid);lastPw=p;settingUp=false;closeSheet();boot(c.user)}
   catch(x){settingUp=false;er.textContent=x.code==='auth/email-already-in-use'?'Akun admin utama sudah ada. Silakan masuk dengan username bram.':emsg(x);if(auth.currentUser)boot(auth.currentUser)}return}
  if(f.id==='waf'){const w=f.elements.w.value.trim();if(w&&!waNum(w))return toast('Nomor WA tidak valid');if(await W(updateDoc(doc(db,'users',f.dataset.id),{wa:w}),'No. WA disimpan'))closeSheet();return}
+ if(f.id==='hint'){const er=$('#herr'),q1=+f.elements.q1.value,q2=+f.elements.q2.value,a1=f.elements.a1.value,a2=f.elements.a2.value;
+  if(q1===q2)return er.textContent='Pilih 2 pertanyaan yang berbeda';if(norm(a1).length<2||norm(a2).length<2)return er.textContent='Jawaban terlalu pendek';
+  let pw=lastPw||f.elements.p.value;const np=f.elements.np?f.elements.np.value:'';
+  if(pw===DEFPW&&!np)return er.textContent='Password kamu masih 123456. Buat password baru dulu.';
+  if(np&&(np.length<6||np===DEFPW))return er.textContent='Password baru minimal 6 karakter dan bukan 123456';
+  er.textContent='Menyimpan…';
+  try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,pw));
+   if(np){await updatePassword(u,np);pw=np}lastPw=pw;
+   await saveRecovery(q1,q2,a1,a2,pw);closeSheet();toast(np?'Password baru & pertanyaan tersimpan':'Pertanyaan lupa password tersimpan')}catch(x){er.textContent=x.code==='auth/invalid-credential'||x.code==='auth/wrong-password'?'Password saat ini salah':emsg(x)}return}
+ if(f.id==='forgot'){const er=$('#ferr'),un=f.elements.u.value.trim().toLowerCase();er.textContent='';
+  if(!forgotRec||forgotRec.un!==un){er.textContent='Memeriksa…';try{const r=await getDoc(doc(db,'recovery',un));if(!r.exists()){er.textContent='Username ini belum mengatur pertanyaan lupa password. Hubungi admin.';return}
+    forgotRec={un,...r.data()};er.textContent='';$('#fq').innerHTML=`<label>${esc(QUESTIONS[forgotRec.q1])}<input name="a1" autocomplete="off" required></label><label>${esc(QUESTIONS[forgotRec.q2])}<input name="a2" autocomplete="off" required></label>`;f.querySelector('.pri').textContent='Lihat password';f.elements.a1.focus()}catch(x){er.textContent=emsg(x)}return}
+  if(fails>=5)return er.textContent='Terlalu banyak salah. Tutup lalu coba lagi nanti.';
+  er.textContent='Memeriksa jawaban…';
+  try{const pw=await tryRecover(forgotRec,f.elements.a1.value,f.elements.a2.value);fails=0;
+   openSheet(`<h2>Password ditemukan</h2><p class="sub">Password untuk <b>@${esc(un)}</b>:</p><p class="note" style="font-size:20px;font-weight:600;letter-spacing:.5px" id="pwshown" data-pw="${esc(pw)}">••••••••</p><div class="acts"><button class="btn" data-act="pwshow">Tampilkan</button><button class="btn pri" data-act="loginwith" data-u="${esc(un)}">Masuk sekarang</button></div><p class="hint">Setelah masuk, sebaiknya ganti password lewat tombol nama di kanan atas.</p><div class="acts"><button class="btn" data-act="close">Tutup</button></div>`,'form')}
+  catch(x){fails++;er.textContent='Jawaban salah. Sisa percobaan: '+Math.max(0,5-fails)}return}
  if(f.id==='frm')return saveForm(f);
  if(f.id==='addu')return createAccount(f);
  if(f.id==='pw'){const er=$('#pwerr'),n=f.elements.n.value;if(n.length<6)return er.textContent='Password baru minimal 6 karakter';er.textContent='Menyimpan…';
-  try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,f.elements.o.value));await updatePassword(u,n);closeSheet();toast('Password diganti')}catch(x){er.textContent=emsg(x)}return}
+  try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,f.elements.o.value));await updatePassword(u,n);lastPw=n;toast('Password diganti');let cur=null;try{const r=await getDoc(doc(db,'recovery',me.username));if(r.exists())cur=r.data()}catch(_){}openHints('Jawab lagi 2 pertanyaan supaya password baru ikut tersimpan untuk fitur lupa password.',cur)}catch(x){er.textContent=emsg(x)}return}
  if(f.id==='cmt'){const c=f.elements.c.value.trim();if(!c)return;f.elements.c.value='';const x=byId(f.dataset.id);
   W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}),'Komentar tersimpan')}});
 document.addEventListener('input',e=>{if(e.target.name==='c'&&e.target.closest('#cmt'))updWa();if(e.target.id==='fq'){filt.q=e.target.value;$('#list').innerHTML=listHtml()}});
 document.addEventListener('change',async e=>{const t=e.target;
  if(t.id==='fwho'){filt.who=t.value;$('#list').innerHTML=listHtml()}
  if(t.id==='jam'&&t.value)W(setDoc(doc(db,'settings','main'),{jam:t.value},{merge:true}),'Jam laporan: '+t.value);
- if(t.id==='ff'&&t.files[0]){$('#finfo').textContent='Memproses foto…';try{pending=await compress(t.files[0]);const im=$('#fprev');im.src=pending;im.hidden=false;
-  $('#finfo').textContent='Ukuran setelah dikecilkan ± '+Math.round(pending.length*.75/1024)+' KB';$('#savefin').disabled=false}catch(_){$('#finfo').textContent='Foto tidak bisa dibaca, coba foto lain.'}}});
+ if(t.id==='ff'&&t.files[0]){$('#finfo').textContent='Memproses foto…';try{const dataUrl=await compress(t.files[0]);pending={kind:'photo',data:dataUrl};const im=$('#fprev');im.src=dataUrl;im.hidden=false;$('#vprev').hidden=true;
+  $('#finfo').textContent='Ukuran setelah dikecilkan ± '+Math.round(dataUrl.length*.75/1024)+' KB';$('#savefin').disabled=false}catch(_){$('#finfo').textContent='Foto tidak bisa dibaca, coba foto lain.'}}});
+document.addEventListener('change',async e=>{const t=e.target;if(t.id!=='fv'||!t.files[0])return;
+ if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){$('#finfo').textContent='HP ini tidak bisa mengecilkan video. Pakai "Rekam video" atau foto.';return}
+ $('#finfo').textContent='Memproses video, tunggu ± 10 detik…';$('#savefin').disabled=true;
+ try{const r=await reencode(t.files[0]);setVideo(r.blob,r.dur);if(r.cut)$('#finfo').textContent+=` · dipotong ${MAX_VID} detik pertama`}catch(_){$('#finfo').textContent='Video tidak bisa dibaca, coba video lain.'}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#sheet').hidden)closeSheet()});
 setInterval(()=>{if(view==='app'&&ready.all){gen();if(sheet.mode!=='form'&&sheet.mode!=='finish')render()}},60000);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});

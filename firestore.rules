@@ -26,7 +26,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isMember() && resource.data.to == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['status', 'doneAt', 'log', 'hasPhoto']));
+                 .hasOnly(['status', 'doneAt', 'log', 'hasPhoto', 'hasVideo']));
       allow delete: if isAdmin();
     }
 
@@ -34,6 +34,28 @@ service cloud.firestore {
       allow read: if isMember();
       allow create, update: if isAdmin()
         || (isMember() && get(/databases/$(db)/documents/tasks/$(id)).data.to == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /videos/{id} {
+      allow read: if isMember();
+      allow create, update: if isAdmin()
+        || (isMember() && get(/databases/$(db)/documents/tasks/$(id)).data.to == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /vchunks/{cid} {
+      allow read: if isMember();
+      allow create, update: if isAdmin()
+        || (isMember() && get(/databases/$(db)/documents/tasks/$(request.resource.data.task)).data.to == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /recovery/{un} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isMember() && get(myDoc()).data.username == un
+        && request.resource.data.uid == request.auth.uid;
       allow delete: if isAdmin();
     }
 
