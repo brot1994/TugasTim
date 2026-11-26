@@ -116,6 +116,9 @@ header{padding-top:env(safe-area-inset-top)}
 .sn{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:600 14px "Space Grotesk",sans-serif;border:2px solid var(--line);color:var(--mut)}
 .sn.ok{background:var(--ok);border-color:var(--ok);color:#fff}.sn.late{border-color:var(--late);color:var(--late)}
 .st-meta{font-size:13px;color:var(--mut)}.st-proof{margin-top:6px}.st-proof img,.st-proof video{max-width:100%;max-height:220px;border-radius:8px;display:block;background:var(--zone)}
+.atts{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.att{width:84px;height:84px;border-radius:10px;background:var(--zone);position:relative;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer}
+.att img{width:100%;height:100%;object-fit:cover;display:block}.att .x{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font:600 15px Inter,sans-serif;cursor:pointer}
+#lb{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}#lb img{max-width:100%;max-height:100%;object-fit:contain}
 .srow{display:grid;grid-template-columns:22px minmax(0,1fr) 150px 44px;gap:6px;align-items:center;margin-bottom:6px}.srow input{min-height:42px}
 @media(max-width:600px){.srow{grid-template-columns:22px minmax(0,1fr) 44px}.srow .sd{grid-column:2}}
 </style></head><body class="out">
@@ -126,6 +129,7 @@ header{padding-top:env(safe-area-inset-top)}
 <nav id="nav"></nav>
 <div id="sheet" hidden><div id="sheetIn" role="dialog" aria-modal="true"></div></div>
 <div id="toast" role="status"></div>
+<div id="lb" hidden><img alt="Gambar lampiran"></div>
 <script type="module">
 import {initializeApp,deleteApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {getAuth,initializeAuth,inMemoryPersistence,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,onAuthStateChanged,updatePassword,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
@@ -250,6 +254,15 @@ async function saveStep(x,si,pd,note){const key=x.id+'~'+si,proof={};
  const upd={steps,log:arrayUnion(entry(`menandai langkah ${si+1}: ${x.steps[si].t}${note?' ('+note+')':''}`))};
  if(all){upd.status='selesai';upd.doneAt=Date.now()}else if(x.status==='baru')upd.status='proses';
  await updateDoc(doc(db,'tasks',x.id),upd);return {all,k:steps.filter(z=>z.done).length,n:steps.length}}
+let ATT=[];const ATT_AT=4102444800000;
+const attKey=x=>x.attKey||x.id;
+function renderAtts(){const b=$('#atts');if(b)b.innerHTML=ATT.map((a,i)=>`<span class="att">${a.data?`<img src="${esc(a.data)}" alt="Lampiran ${i+1}">`:'<span class="st-meta" style="display:grid;place-items:center;height:100%">…</span>'}<button type="button" class="x" data-act="delatt" data-i="${i}" aria-label="Hapus gambar">×</button></span>`).join('')}
+async function getAtt(key,i){const k=key+'~a'+i;if(photoCache[k])return photoCache[k];const r=await getDoc(doc(db,'photos',k));return r.exists()?(photoCache[k]=r.data()):null}
+async function loadFormAtts(key,n){ATT=[...Array(n)].map(()=>({data:null}));renderAtts();for(let i=0;i<n;i++){try{const d=await getAtt(key,i);if(ATT[i])ATT[i].data=d?d.data:null}catch(e){}}ATT=ATT.filter(a=>a.data);renderAtts()}
+async function saveAtts(key,old){for(let i=0;i<ATT.length;i++){const k=key+'~a'+i,data=ATT[i].data;if(photoCache[k]&&photoCache[k].data===data)continue;await setDoc(doc(db,'photos',k),{data,att:true,at:ATT_AT,added:Date.now()});photoCache[k]={data}}
+ for(let i=ATT.length;i<old;i++){deleteDoc(doc(db,'photos',key+'~a'+i)).catch(()=>{});delete photoCache[key+'~a'+i]}return ATT.length}
+function attBox(x){return x.att?`<div class="lbl">Gambar lampiran</div><div class="atts" id="attbox">${[...Array(x.att)].map((_,i)=>`<button type="button" class="att" data-full="1" data-i="${i}" aria-label="Lihat gambar ${i+1}"><span class="st-meta" style="display:grid;place-items:center;height:100%">…</span></button>`).join('')}</div>`:''}
+async function loadAtts(x){for(let i=0;i<x.att;i++){try{const d=await getAtt(attKey(x),i);const b=document.querySelector(`#attbox [data-i="${i}"]`);if(!b||sheet.id!==x.id)return;b.innerHTML=d?`<img src="${esc(d.data)}" alt="Lampiran ${i+1}">`:'<span class="st-meta">-</span>'}catch(e){}}}
 function stepRow(st,i,idx){return `<div class="srow" data-i="${idx??''}"><span class="st-meta">${i+1}.</span><input class="st" value="${esc(st?st.t:'')}" placeholder="Langkah ${i+1}" aria-label="Langkah ${i+1}" ${st&&st.done?'readonly':''}><input class="sd" type="date" value="${esc(st?st.due||'':'')}" aria-label="Target langkah ${i+1}">${st&&st.done?'<span class="st-meta">✓</span>':`<button type="button" class="btn" data-act="delstep" aria-label="Hapus langkah" style="min-height:42px;padding:0">×</button>`}</div>`}
 function renum(){document.querySelectorAll('#srows .srow').forEach((r,i)=>{r.firstElementChild.textContent=(i+1)+'.';r.querySelector('.st').placeholder='Langkah '+(i+1)})}
 async function saveVideo(id,blob,dur,task=id){const buf=new Uint8Array(await blob.arrayBuffer()),CH=900000,n=Math.ceil(buf.length/CH);
@@ -322,7 +335,7 @@ ring(){const {L,H,D}=groups(),pro=tasks().filter(x=>x.status==='proses').length;
  <h3>Perlu perhatian</h3>${listOr([...L,...H],'Tidak ada yang terlambat atau deadline hari ini.')}`},
 tugas(){const chips=[['semua','Semua'],['late','Terlambat'],['hari','Hari ini'],['baru','Belum mulai'],['proses','Dikerjakan'],['selesai','Selesai']].map(([k,l])=>`<button data-st="${k}" class="${filt.st===k?'on':''}">${l}</button>`).join('');
  return `<h1>Semua tugas</h1><div class="chips">${chips}</div><div class="row2"><select id="fwho" aria-label="Orang"><option value="">Semua orang</option>${users().map(u=>`<option value="${esc(u.id)}" ${filt.who===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select><input id="fq" type="search" placeholder="Cari tugas…" value="${esc(filt.q)}" aria-label="Cari"></div><div class="list" id="list">${listHtml()}</div><p class="hint">Tugas selesai disimpan ${KEEP_DONE_DAYS} hari terakhir.</p>`},
-ulang(){const a=Object.values(P).sort((x,y)=>x.title.localeCompare(y.title));return `<h1>Tugas berulang</h1><p class="sub">Muncul otomatis sesuai jadwal. Tekan <b>+ Tugas baru</b> lalu pilih Harian, Mingguan atau Bulanan untuk menambah.</p><div class="people">${a.map(p=>`<div class="urow"><div class="grow"><b>${esc(p.title)}</b><small>${esc(uname(p.to))} · ${esc(ruleTxt(p))}${p.on?'':' · <b>dijeda</b>'}</small></div><button class="btn" data-act="tog" data-id="${esc(p.id)}">${p.on?'Jeda':'Aktifkan'}</button><button class="btn dang" data-act="deltpl" data-id="${esc(p.id)}">Hapus</button></div>`).join('')||'<div class="empty">Belum ada tugas berulang.</div>'}</div>`},
+ulang(){const a=Object.values(P).sort((x,y)=>x.title.localeCompare(y.title));return `<h1>Tugas berulang</h1><p class="sub">Muncul otomatis sesuai jadwal. Tekan <b>+ Tugas baru</b> lalu pilih Harian, Mingguan atau Bulanan untuk menambah.</p><div class="people">${a.map(p=>`<div class="urow"><div class="grow"><b>${esc(p.title)}</b><small>${esc(uname(p.to))} · ${esc(ruleTxt(p))}${p.on?'':' · <b>dijeda</b>'}</small></div><button class="btn" data-act="edittpl" data-id="${esc(p.id)}">Ubah</button><button class="btn" data-act="tog" data-id="${esc(p.id)}">${p.on?'Jeda':'Aktifkan'}</button><button class="btn dang" data-act="deltpl" data-id="${esc(p.id)}">Hapus</button></div>`).join('')||'<div class="empty">Belum ada tugas berulang.</div>'}</div>`},
 lap(){const t=reportText();return `<h1>Laporan pagi</h1><p class="sub">Teks ini yang dikirim ke grup WA tim.</p><pre class="wa" id="rep">${esc(t)}</pre>
  <div class="acts"><button class="btn" data-act="copy">Salin teks</button><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(t)}" target="_blank" rel="noopener">Buka WhatsApp</a></div>
  <p class="hint">Di WhatsApp, pilih grup tim lalu tekan kirim.</p>
@@ -365,7 +378,7 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  if(adm&&x.status==='selesai')a+=`<button class="btn" data-act="reopen" data-id="${esc(x.id)}">Buka lagi</button>`;
  openSheet(`<div class="tk-top"><span class="pill s-${s}">${ST[s]}</span>${x.prio==='T'?'<span class="pill pr">Prioritas tinggi</span>':''}</div><h2>${esc(x.title)}</h2>
  <dl class="meta"><dt>Penanggung jawab</dt><dd>${esc(uname(x.to))}</dd><dt>Deadline</dt><dd>${esc(full(x.due))} · <span class="d-${s}">${esc(dueTxt(x))}</span></dd><dt>Prioritas</dt><dd>${PRIO[x.prio]||'-'}</dd><dt>Dari</dt><dd>${esc(uname(x.by))}</dd>${p?`<dt>Jadwal</dt><dd>${esc(ruleTxt(p))}</dd>`:''}</dl>
- ${x.note?`<p class="note">${esc(x.note)}</p>`:''}${x.hasPhoto?`<figure class="ph" id="phbox">Memuat foto bukti…</figure>`:''}${x.hasVideo?`<figure class="ph" id="vbox">Memuat video bukti…</figure>`:''}${x.status==='selesai'&&!hasSt&&!x.hasPhoto&&!x.hasVideo?'<p class="hint">Bukti foto/video sudah dihapus otomatis.</p>':''}
+ ${x.note?`<p class="note">${esc(x.note)}</p>`:''}${attBox(x)}${x.hasPhoto?`<figure class="ph" id="phbox">Memuat foto bukti…</figure>`:''}${x.hasVideo?`<figure class="ph" id="vbox">Memuat video bukti…</figure>`:''}${x.status==='selesai'&&!hasSt&&!x.hasPhoto&&!x.hasVideo?'<p class="hint">Bukti foto/video sudah dihapus otomatis.</p>':''}
  ${hasSt?stepsHtml(x,can,adm):''}
  <div id="fin"></div>${a?`<div class="acts" id="dacts">${a}</div>`:''}
  <h3>Riwayat & komentar</h3><ul class="log">${(x.log||[]).slice().sort((m,n)=>n.t-m.t).map(l=>`<li><b>${esc(uname(l.who))}</b> ${esc(l.msg)}<time>${esc(when(l.t))}</time></li>`).join('')}</ul>
@@ -374,6 +387,7 @@ function openDetail(id,quiet){const x=byId(id);if(!x){if(!quiet)toast('Tugas tid
  <div class="acts"><button class="btn" data-act="close">Tutup</button></div>`,'detail',id);
  if(x.hasPhoto)loadPhoto(x);
  if(hasSt)loadStepProofs(x);
+ if(x.att)loadAtts(x);
  if(x.hasVideo)loadVideo(x.id).then(v=>{const b=$('#vbox');if(!b||sheet.id!==x.id)return;if(!v){b.textContent='Video bukti tidak tersedia.';return}
   b.innerHTML=`<video controls playsinline preload="metadata" style="width:100%;max-height:340px;border-radius:10px;background:#000"></video><figcaption>Video bukti · ${esc(when(v.at))}</figcaption>`;b.querySelector('video').src=v.url}).catch(()=>{const b=$('#vbox');if(b)b.textContent='Video bukti gagal dimuat.'})}
 async function loadPhoto(x){let d=photoCache[x.id];
@@ -382,48 +396,58 @@ async function loadPhoto(x){let d=photoCache[x.id];
  if(!d){box.textContent='Foto bukti tidak tersedia.';return}
  box.innerHTML=`<img alt="Foto bukti"><figcaption>Foto bukti · ${esc(when(d.at))}</figcaption>`;box.querySelector('img').src=d.data}
 
-function openForm(id){const x=id?byId(id):null,T=dstr(new Date()),wd=new Date().getDay();F={prio:x?x.prio:'S',rep:'sekali'};
+function openForm(id,tid){const x=id?byId(id):null,tp=tid?P[tid]:null,T=dstr(new Date()),wd=new Date().getDay();F={prio:x?x.prio:tp?tp.prio:'S',rep:tp?tp.rep:'sekali'};ATT=[];
+ const src=x||tp;
  const seg=(k,o)=>`<div class="seg" data-seg="${k}">${o.map(([v,l])=>`<button type="button" data-v="${v}" class="${F[k]===v?'on':''}">${l}</button>`).join('')}</div>`;
- openSheet(`<form id="frm" data-edit="${x?esc(x.id):''}"><h2>${x?'Ubah tugas':'Tugas baru'}</h2>
- <label>Judul tugas<input name="title" value="${x?esc(x.title):''}" placeholder="mis. Cek APAR line 3"></label>
- <label>Penanggung jawab<select name="to">${users().map(u=>`<option value="${esc(u.id)}" ${x&&x.to===u.id?'selected':''}>${esc(u.name)} — ${esc(u.jab)}</option>`).join('')}</select></label>
+ openSheet(`<form id="frm" data-edit="${x?esc(x.id):''}" data-tpl="${tp?esc(tp.id):''}"><h2>${x?'Ubah tugas':tp?'Ubah tugas berulang':'Tugas baru'}</h2>
+ <label>Judul tugas<input name="title" value="${src?esc(src.title):''}" placeholder="mis. Cek APAR line 3"></label>
+ <label>Penanggung jawab<select name="to">${users().map(u=>`<option value="${esc(u.id)}" ${src&&src.to===u.id?'selected':''}>${esc(u.name)} — ${esc(u.jab)}</option>`).join('')}</select></label>
  <div class="lbl">Prioritas</div>${seg('prio',[['T','Tinggi'],['S','Sedang'],['R','Rendah']])}
- ${x?'':'<div class="lbl">Jadwal</div>'+seg('rep',[['sekali','Sekali'],['harian','Harian'],['mingguan','Mingguan'],['bulanan','Bulanan']])}
- <div data-show="mingguan" hidden><div class="lbl">Hari</div><div class="days">${[1,2,3,4,5,6,0].map(d=>`<label class="day"><input type="checkbox" name="day" value="${d}" ${d===wd?'checked':''}><span>${HARI[d]}</span></label>`).join('')}</div></div>
+ ${x?'':'<div class="lbl">Jadwal</div>'+seg('rep',(tp?[]:[['sekali','Sekali']]).concat([['harian','Harian'],['mingguan','Mingguan'],['bulanan','Bulanan']]))}
+ <div data-show="mingguan" hidden><div class="lbl">Hari</div><div class="days">${[1,2,3,4,5,6,0].map(d=>`<label class="day"><input type="checkbox" name="day" value="${d}" ${(tp?(tp.days||[]).includes(d):d===wd)?'checked':''}><span>${HARI[d]}</span></label>`).join('')}</div></div>
  <div class="row2"><label data-show="sekali">Tanggal deadline<input type="date" name="tgl" value="${x?x.due.slice(0,10):T}"></label>
- <label data-show="bulanan" hidden>Tanggal tiap bulan (1–31)<input type="number" name="date" min="1" max="31" value="${new Date().getDate()}"><small class="st-meta" style="display:block;font-weight:400">Kalau bulan itu tidak punya tanggal tsb (mis. 31), pakai tanggal terakhirnya.</small></label>
- <label>Jam deadline (24 jam)${timeSel('jam',x?x.due.slice(11,16):'16:00')}</label></div>
- <label>Catatan<textarea name="note" rows="3" placeholder="Opsional">${x?esc(x.note):''}</textarea></label>
+ <label data-show="bulanan" hidden>Tanggal tiap bulan (1–31)<input type="number" name="date" min="1" max="31" value="${tp&&tp.rep==='bulanan'?tp.date:new Date().getDate()}"><small class="st-meta" style="display:block;font-weight:400">Kalau bulan itu tidak punya tanggal tsb (mis. 31), pakai tanggal terakhirnya.</small></label>
+ <label>Jam deadline (24 jam)${timeSel('jam',x?x.due.slice(11,16):tp?tp.time:'16:00')}</label></div>
+ <label>Catatan<textarea name="note" rows="3" placeholder="Opsional">${src?esc(src.note||''):''}</textarea></label>
+${x&&x.tpl?'':`<div class="lbl">Gambar lampiran (opsional, maks. 4)</div><div class="atts" id="atts"></div>
+ <label class="btn" style="margin-bottom:14px">+ Tambah gambar<input type="file" accept="image/*" multiple id="fatt" hidden></label>`}
  <div data-show="sekali"><div class="lbl">Langkah-langkah (opsional) · teks dan tanggal target</div>
  <div id="srows">${(x&&x.steps||[]).map((st,i)=>stepRow(st,i,i)).join('')}</div>
  <div class="acts" style="margin:6px 0 10px"><button type="button" class="btn" data-act="addstep">+ Tambah langkah</button>
  <select id="stpl" aria-label="Template langkah"><option value="">Pakai template…</option>${Object.values(STT).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></div>
  <div class="row2"><input id="stplname" placeholder="Nama template baru" aria-label="Nama template"><button type="button" class="btn" data-act="savestpl">Simpan jadi template</button></div></div>
- <div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form')}
+ <div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form');
+ if(tp)syncForm();if(src&&src.att&&!(x&&x.tpl))loadFormAtts(x?attKey(x):'tpl_'+tp.id,src.att)}
 function readSteps(old){return [...document.querySelectorAll('#srows .srow')].map(r=>{const t=r.querySelector('.st').value.trim(),due=r.querySelector('.sd').value,i=r.dataset.i;
  if(!t)return null;const o=i!==''&&old?old[+i]:null;return o?{...o,t,due}:{t,due,done:false}}).filter(Boolean)}
 function syncForm(){document.querySelectorAll('#frm [data-show]').forEach(e=>e.hidden=e.dataset.show!==F.rep);document.querySelectorAll('#frm .row2').forEach(r=>r.style.gridTemplateColumns=F.rep==='harian'||F.rep==='mingguan'?'minmax(0,1fr)':'')}
 async function saveForm(f){const g=n=>(f.elements[n]&&f.elements[n].value||'').trim(),title=g('title'),to=g('to'),jam=tval(f,'jam')||'16:00',note=g('note'),ed=f.dataset.edit;
  if(!title)return toast('Judul tugas wajib diisi');if(!to)return toast('Pilih penanggung jawab');
- const btn=f.querySelector('.pri');btn.disabled=true;
+ const btn=f.querySelector('.pri');btn.disabled=true;const tid=f.dataset.tpl;
+ if(tid){const tp=P[tid],days=[...f.querySelectorAll('[name=day]:checked')].map(c=>+c.value);if(F.rep==='mingguan'&&!days.length){btn.disabled=false;return toast('Pilih minimal satu hari')}
+  try{const n=await saveAtts('tpl_'+tid,tp.att||0);await updateDoc(doc(db,'tpls',tid),{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(31,Math.max(1,+g('date')||1)),time:jam,att:n});
+   toast('Tugas berulang diperbarui. Berlaku mulai jadwal berikutnya.');closeSheet();genDay=''}catch(e){toast(emsg(e));btn.disabled=false}return}
  if(ed){const x=byId(ed),day=g('tgl')||x.due.slice(0,10);
   const steps=readSteps(x.steps||[]),upd={title,to,prio:F.prio,note,due:day+'T'+jam,day,steps,log:arrayUnion(entry('mengubah tugas'))};
   if(steps.length&&steps.every(z=>z.done)&&x.status!=='selesai'){upd.status='selesai';upd.doneAt=Date.now()}else if(steps.length&&!steps.every(z=>z.done)&&x.status==='selesai'){upd.status='proses';upd.doneAt=null}
+  try{if(!x.tpl){upd.att=await saveAtts(attKey(x),x.att||0);upd.attKey=attKey(x)}}catch(e){toast(emsg(e));btn.disabled=false;return}
   if(await W(updateDoc(doc(db,'tasks',ed),upd),'Tugas diperbarui'))openDetail(ed,true);else btn.disabled=false;return}
  if(F.rep==='sekali'){const tgl=g('tgl');if(!tgl){btn.disabled=false;return toast('Isi tanggal deadline')}
-  try{const r=await addDoc(collection(db,'tasks'),{title,to,by:me.id,due:tgl+'T'+jam,day:tgl,prio:F.prio,status:'baru',note,doneAt:null,tpl:null,hasPhoto:false,steps:readSteps(null),created:Date.now(),log:[entry('membuat tugas')]});
+  try{const r=doc(collection(db,'tasks'));const na=await saveAtts(r.id,0);
+   await setDoc(r,{title,to,by:me.id,due:tgl+'T'+jam,day:tgl,prio:F.prio,status:'baru',note,doneAt:null,tpl:null,hasPhoto:false,steps:readSteps(null),att:na,attKey:r.id,created:Date.now(),log:[entry('membuat tugas')]});
    toast('Tugas dibuat untuk '+uname(to));const x={id:r.id,title,due:tgl+'T'+jam,note,prio:F.prio};
-   if(!waPrompt(to,`📋 *TUGAS BARU*\nDari: ${me.name}\nTugas: ${title}\n⏰ Deadline: ${full(x.due)}${F.prio==='T'?'\n❗ Prioritas tinggi':''}${note?'\n📝 '+note:''}${(()=>{const st=readSteps(null);return st.length?'\n\nLangkah:\n'+st.map((z,i)=>`${i+1}. ${z.t}${z.due?' (target '+z.due.split('-').reverse().join('/')+')':''}`).join('\n'):''})()}\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?'))closeSheet()}
+   if(!waPrompt(to,`📋 *TUGAS BARU*\nDari: ${me.name}\nTugas: ${title}\n⏰ Deadline: ${full(x.due)}${F.prio==='T'?'\n❗ Prioritas tinggi':''}${note?'\n📝 '+note:''}${ATT.length?`\n📎 ${ATT.length} gambar lampiran (lihat di aplikasi)`:''}${(()=>{const st=readSteps(null);return st.length?'\n\nLangkah:\n'+st.map((z,i)=>`${i+1}. ${z.t}${z.due?' (target '+z.due.split('-').reverse().join('/')+')':''}`).join('\n'):''})()}\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?'))closeSheet()}
   catch(e){toast(emsg(e));btn.disabled=false}return}
  const days=[...f.querySelectorAll('[name=day]:checked')].map(c=>+c.value);if(F.rep==='mingguan'&&!days.length){btn.disabled=false;return toast('Pilih minimal satu hari')}
- if(await W(addDoc(collection(db,'tpls'),{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(31,Math.max(1,+g('date')||1)),time:jam,on:true,by:me.id,created:Date.now()}),'Tugas berulang disimpan')){closeSheet();genDay=''}else btn.disabled=false}
+ try{const r=doc(collection(db,'tpls'));const na=await saveAtts('tpl_'+r.id,0);
+  await setDoc(r,{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(31,Math.max(1,+g('date')||1)),time:jam,on:true,by:me.id,att:na,created:Date.now()});toast('Tugas berulang disimpan');closeSheet();genDay=''}catch(e){toast(emsg(e));btn.disabled=false}}
 
 async function gen(){const t=new Date(),T=dstr(t);if(genDay===T)return;genDay=T;
  for(const p of Object.values(P)){if(!p.on)continue;
   const ok=p.rep==='harian'||(p.rep==='mingguan'&&(p.days||[]).includes(t.getDay()))||(p.rep==='bulanan'&&Math.min(+p.date,new Date(t.getFullYear(),t.getMonth()+1,0).getDate())===t.getDate());
   const id='r_'+p.id+'_'+T;if(!ok||byId(id))continue;const ref=doc(db,'tasks',id);
   try{await runTransaction(db,async tx=>{const s=await tx.get(ref);if(s.exists())return;
-   tx.set(ref,{title:p.title,to:p.to,by:p.by,due:T+'T'+p.time,day:T,prio:p.prio,status:'baru',note:p.note||'',doneAt:null,tpl:p.id,hasPhoto:false,created:Date.now(),log:[{t:Date.now(),who:'sistem',msg:'membuat tugas berulang otomatis'}]})})}catch(e){console.warn('gen',e)}}}
+   tx.set(ref,{title:p.title,to:p.to,by:p.by,due:T+'T'+p.time,day:T,prio:p.prio,status:'baru',note:p.note||'',doneAt:null,tpl:p.id,hasPhoto:false,att:p.att||0,attKey:'tpl_'+p.id,created:Date.now(),log:[{t:Date.now(),who:'sistem',msg:'membuat tugas berulang otomatis'}]})})}catch(e){console.warn('gen',e)}}}
 async function cleanup(){if(cleaned)return;cleaned=true;
  try{const s=await getDocs(query(collection(db,'photos'),where('at','<',Date.now()-KEEP_PHOTO_DAYS*864e5),limit(25)));
   for(const d of s.docs){await deleteDoc(d.ref);try{await updateDoc(doc(db,'tasks',d.id),{hasPhoto:false})}catch(_){}}}catch(e){console.warn('cleanup',e)}
@@ -464,12 +488,13 @@ async function createAccount(f){const g=n=>f.elements[n].value.trim(),name=g('n'
   f.reset();er.textContent='';toast(`Akun ${name} dibuat (username: ${un})`)}
  catch(e){er.textContent=emsg(e)}finally{btn.disabled=false;deleteApp(sec).catch(()=>{})}}
 
-document.addEventListener('click',async e=>{const b=e.target.closest('button,[data-act]');if(e.target.id==='sheet')return closeSheet();if(!b)return;const d=b.dataset,id=d.id;
+document.addEventListener('click',async e=>{if(e.target.closest('#lb')){$('#lb').hidden=true;return}const b=e.target.closest('button,[data-act]');if(e.target.id==='sheet')return closeSheet();if(!b)return;const d=b.dataset,id=d.id;
  if(d.tab){tab=d.tab;render();scrollTo(0,0);return}
  if(d.open)return openDetail(d.open);
  if(d.go){filt={st:d.go,who:'',q:''};tab='tugas';render();scrollTo(0,0);return}
  if(d.who&&b.classList.contains('prow')){filt={st:'semua',who:d.who,q:''};tab='tugas';render();scrollTo(0,0);return}
  if(d.st){filt.st=d.st;render();return}
+ if(d.full){const im=b.querySelector('img');if(im){$('#lb img').src=im.src;$('#lb').hidden=false}return}
  if(d.q!==undefined&&$('#cmt')){const ta=$('#cmt').elements.c;ta.value=d.q;ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);updWa();return}
  if(d.act==='cmtwa'){const f=$('#cmt'),c=f.elements.c.value.trim();if(!c){e.preventDefault();toast('Tulis komentar dulu');return}
   updWa();const x=byId(f.dataset.id);f.elements.c.value='';W(updateDoc(doc(db,'tasks',x.id),{log:arrayUnion(entry('💬 '+c))}));return}
@@ -504,6 +529,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
    if(!waPrompt(x.by,`✅ *TUGAS SELESAI*\n👤 ${me.name}\n📋 ${x.title}\n⏰ Deadline: ${full(x.due)} (${late?'terlambat':'tepat waktu'})${lc?'\n💬 '+lc.msg.slice(2).trim():''}\n📷 Bukti: ${tlink(x)}`,'Kabari '+uname(x.by)+' lewat WA?'))openDetail(id,true)}else b.disabled=false;return}
  case 'reopen':{const hv=byId(id).hasVideo;if((byId(id).steps||[]).length){const x=byId(id);return W(updateDoc(ref,{status:'proses',doneAt:null,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi. Batalkan langkah yang perlu diulang.')}await W(updateDoc(ref,{status:'proses',doneAt:null,hasPhoto:false,hasVideo:false,log:arrayUnion(entry('membuka lagi tugas ini'))}),'Tugas dibuka lagi');deleteDoc(doc(db,'photos',id)).catch(()=>{});delete photoCache[id];if(hv)delVideo(id);return}
  case 'infook':showInfo=false;try{localStorage.setItem('tt-info-1','x')}catch(_){}return render();
+ case 'edittpl':return openForm(null,id);
+ case 'delatt':ATT.splice(+d.i,1);return renderAtts();
  case 'recvid':return startRec();
  case 'stoprec':if(rec&&rec.r.state==='recording')rec.r.stop();return;
  case 'forgot':return forgotSheet();
@@ -516,7 +543,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
  case 'setwa':{const u=U[id];return openSheet(`<form id="waf" data-id="${esc(id)}"><h2>No. WA ${esc(u.name)}</h2><label>Nomor WhatsApp<input name="w" type="tel" value="${esc(u.wa||'')}" placeholder="contoh 0812xxxx"></label><div class="acts"><button type="button" class="btn" data-act="close">Batal</button><button class="btn pri">Simpan</button></div></form>`,'form')}
  case 'edit':return openForm(id);
  case 'del':$('#aacts').innerHTML=`<span style="flex:1 1 100%">Hapus tugas ini?</span><button class="btn" data-act="cancelfin" data-id="${esc(id)}">Batal</button><button class="btn dang" data-act="del2" data-id="${esc(id)}">Ya, hapus</button>`;return;
- case 'del2':{const hv=byId(id)&&byId(id).hasVideo;(byId(id)&&byId(id).steps||[]).forEach((z,i)=>{if(z.done&&z.proof)delMedia(id+'~'+i)});closeSheet();await W(deleteDoc(ref),'Tugas dihapus');deleteDoc(doc(db,'photos',id)).catch(()=>{});if(hv)delVideo(id);return}
+ case 'del2':{const hv=byId(id)&&byId(id).hasVideo;{const x=byId(id);if(x&&x.att&&!x.tpl)for(let i=0;i<x.att;i++)deleteDoc(doc(db,'photos',attKey(x)+'~a'+i)).catch(()=>{})}(byId(id)&&byId(id).steps||[]).forEach((z,i)=>{if(z.done&&z.proof)delMedia(id+'~'+i)});closeSheet();await W(deleteDoc(ref),'Tugas dihapus');deleteDoc(doc(db,'photos',id)).catch(()=>{});if(hv)delVideo(id);return}
  case 'tog':{const p=P[id];genDay='';return W(updateDoc(doc(db,'tpls',id),{on:!p.on}),p.on?'Dijeda':'Diaktifkan')}
  case 'deltpl':if(d.sure)return W(deleteDoc(doc(db,'tpls',id)),'Tugas berulang dihapus');b.dataset.sure='1';b.textContent='Yakin hapus?';return;
  case 'role':{const u=U[id];const r=u.role==='admin'?'member':'admin';return W(updateDoc(doc(db,'users',id),{role:r}),u.name+' sekarang '+(r==='admin'?'admin':'anggota'))}
@@ -560,6 +587,8 @@ document.addEventListener('change',async e=>{const t=e.target;
  if((t.id==='jam_h'||t.id==='jam_m')&&!t.closest('#frm')){const v=tval(document,'jam');W(setDoc(doc(db,'settings','main'),{jam:v},{merge:true}),'Jam laporan: '+v)}
  if(t.id==='ff'&&t.files[0]){$('#finfo').textContent='Memproses foto…';try{const dataUrl=await compress(t.files[0]);pending={kind:'photo',data:dataUrl};const im=$('#fprev');im.src=dataUrl;im.hidden=false;$('#vprev').hidden=true;
   $('#finfo').textContent='Ukuran setelah dikecilkan ± '+Math.round(dataUrl.length*.75/1024)+' KB';$('#savefin').disabled=false}catch(_){$('#finfo').textContent='Foto tidak bisa dibaca, coba foto lain.'}}});
+document.addEventListener('change',async e=>{const t=e.target;if(t.id!=='fatt'||!t.files.length)return;
+ for(const file of [...t.files]){if(ATT.length>=4){toast('Maksimal 4 gambar');break}try{ATT.push({data:await compress(file,1280,0.7)});renderAtts()}catch(_){toast('Gambar tidak bisa dibaca')}}t.value=''});
 document.addEventListener('change',e=>{const t=e.target;if(t.id!=='stpl'||!t.value)return;const tp=STT[t.value];if(!tp)return;
  const rows=$('#srows');[...rows.querySelectorAll('.srow')].forEach(r=>{if(!r.querySelector('.st').readOnly)r.remove()});
  const base=rows.children.length;tp.steps.forEach((z,i)=>rows.insertAdjacentHTML('beforeend',stepRow({t:z,due:'',done:false},base+i,null)));renum();t.value=''});
