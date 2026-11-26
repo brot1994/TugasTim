@@ -289,7 +289,7 @@ function dueTxt(x){const d=new Date(x.due),now=new Date(),D=x.due.slice(0,10),ja
  if(d<now){const h=Math.floor((now-d)/864e5);return h>=1?`Lewat ${h} hari`:`Lewat ${Math.max(1,Math.round((now-d)/36e5))} jam`}
  if(D===dstr(now))return 'Hari ini '+jam;if(D===dstr(addDays(now,1)))return 'Besok '+jam;
  return new Date(D+'T00:00').toLocaleDateString('id-ID',{weekday:'short',day:'numeric',month:'short'})+' '+jam}
-const ruleTxt=p=>(p.rep==='harian'?'Setiap hari':p.rep==='mingguan'?'Setiap '+(p.days||[]).slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d=>HARI[d]).join(', '):'Setiap tanggal '+p.date)+', jam '+p.time;
+const ruleTxt=p=>(p.rep==='harian'?'Setiap hari':p.rep==='mingguan'?'Setiap '+(p.days||[]).slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d=>HARI[d]).join(', '):'Setiap tanggal '+p.date+(+p.date>28?' (atau tanggal terakhir bulan itu)':''))+', jam '+p.time;
 const sortT=(a,b)=>(a.status==='selesai')-(b.status==='selesai')||(a.status==='selesai'?b.doneAt-a.doneAt:a.due.localeCompare(b.due));
 const avatar=n=>esc(String(n).replace(/^Om |^Ketua /,'').slice(0,2).toUpperCase());
 function card(x){const s=stOf(x);return `<button class="tk" data-open="${esc(x.id)}"><div class="tk-top"><span class="pill s-${s}">${ST[s]}</span>${x.prio==='T'?'<span class="pill pr">Prioritas tinggi</span>':''}${x.tpl?'<span class="rep">↻ berulang</span>':''}</div><div class="tk-t">${esc(x.title)}</div>${(()=>{const {n,k,nx}=sProg(x);return n?`<div class="sbar"><i style="width:${k/n*100}%"></i></div><div class="st-meta" style="margin-bottom:4px">Langkah ${k}/${n}${nx?' · '+esc(nx.t):''}${nx&&stepLate(nx)?' · <b class="d-late">terlambat</b>':''}</div>`:''})()}<div class="tk-m"><span>${esc(uname(x.to))}</span><span class="due d-${s}">${esc(dueTxt(x))}</span></div></button>`}
@@ -391,7 +391,7 @@ function openForm(id){const x=id?byId(id):null,T=dstr(new Date()),wd=new Date().
  ${x?'':'<div class="lbl">Jadwal</div>'+seg('rep',[['sekali','Sekali'],['harian','Harian'],['mingguan','Mingguan'],['bulanan','Bulanan']])}
  <div data-show="mingguan" hidden><div class="lbl">Hari</div><div class="days">${[1,2,3,4,5,6,0].map(d=>`<label class="day"><input type="checkbox" name="day" value="${d}" ${d===wd?'checked':''}><span>${HARI[d]}</span></label>`).join('')}</div></div>
  <div class="row2"><label data-show="sekali">Tanggal deadline<input type="date" name="tgl" value="${x?x.due.slice(0,10):T}"></label>
- <label data-show="bulanan" hidden>Tanggal tiap bulan (1–28)<input type="number" name="date" min="1" max="28" value="${Math.min(28,new Date().getDate())}"></label>
+ <label data-show="bulanan" hidden>Tanggal tiap bulan (1–31)<input type="number" name="date" min="1" max="31" value="${new Date().getDate()}"><small class="st-meta" style="display:block;font-weight:400">Kalau bulan itu tidak punya tanggal tsb (mis. 31), pakai tanggal terakhirnya.</small></label>
  <label>Jam deadline (24 jam)${timeSel('jam',x?x.due.slice(11,16):'16:00')}</label></div>
  <label>Catatan<textarea name="note" rows="3" placeholder="Opsional">${x?esc(x.note):''}</textarea></label>
  <div data-show="sekali"><div class="lbl">Langkah-langkah (opsional) · teks dan tanggal target</div>
@@ -416,11 +416,11 @@ async function saveForm(f){const g=n=>(f.elements[n]&&f.elements[n].value||'').t
    if(!waPrompt(to,`📋 *TUGAS BARU*\nDari: ${me.name}\nTugas: ${title}\n⏰ Deadline: ${full(x.due)}${F.prio==='T'?'\n❗ Prioritas tinggi':''}${note?'\n📝 '+note:''}${(()=>{const st=readSteps(null);return st.length?'\n\nLangkah:\n'+st.map((z,i)=>`${i+1}. ${z.t}${z.due?' (target '+z.due.split('-').reverse().join('/')+')':''}`).join('\n'):''})()}\n\nBuka: ${tlink(x)}`,'Kabari '+uname(to)+' lewat WA?'))closeSheet()}
   catch(e){toast(emsg(e));btn.disabled=false}return}
  const days=[...f.querySelectorAll('[name=day]:checked')].map(c=>+c.value);if(F.rep==='mingguan'&&!days.length){btn.disabled=false;return toast('Pilih minimal satu hari')}
- if(await W(addDoc(collection(db,'tpls'),{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(28,Math.max(1,+g('date')||1)),time:jam,on:true,by:me.id,created:Date.now()}),'Tugas berulang disimpan')){closeSheet();genDay=''}else btn.disabled=false}
+ if(await W(addDoc(collection(db,'tpls'),{title,to,prio:F.prio,note,rep:F.rep,days,date:Math.min(31,Math.max(1,+g('date')||1)),time:jam,on:true,by:me.id,created:Date.now()}),'Tugas berulang disimpan')){closeSheet();genDay=''}else btn.disabled=false}
 
 async function gen(){const t=new Date(),T=dstr(t);if(genDay===T)return;genDay=T;
  for(const p of Object.values(P)){if(!p.on)continue;
-  const ok=p.rep==='harian'||(p.rep==='mingguan'&&(p.days||[]).includes(t.getDay()))||(p.rep==='bulanan'&&+p.date===t.getDate());
+  const ok=p.rep==='harian'||(p.rep==='mingguan'&&(p.days||[]).includes(t.getDay()))||(p.rep==='bulanan'&&Math.min(+p.date,new Date(t.getFullYear(),t.getMonth()+1,0).getDate())===t.getDate());
   const id='r_'+p.id+'_'+T;if(!ok||byId(id))continue;const ref=doc(db,'tasks',id);
   try{await runTransaction(db,async tx=>{const s=await tx.get(ref);if(s.exists())return;
    tx.set(ref,{title:p.title,to:p.to,by:p.by,due:T+'T'+p.time,day:T,prio:p.prio,status:'baru',note:p.note||'',doneAt:null,tpl:p.id,hasPhoto:false,created:Date.now(),log:[{t:Date.now(),who:'sistem',msg:'membuat tugas berulang otomatis'}]})})}catch(e){console.warn('gen',e)}}}
